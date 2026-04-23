@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
-import type { DiagnosticWarning } from '../../shared/contracts';
+import type { DiagnosticWarning, TokenBreakdown } from '../../shared/contracts';
+import { cacheHitRateForBreakdown } from '../../shared/usageMath';
 import { listJsonlFiles } from './sourceDetector';
 
 export interface SessionTiming {
@@ -13,6 +14,7 @@ export interface SessionTiming {
   start?: Date;
   end?: Date;
   activeMs?: number;
+  tokenBreakdown?: TokenBreakdown;
   parseWarnings: number;
 }
 
@@ -43,12 +45,59 @@ function addActiveGap(timestamps: Date[], idleCapMs: number): number {
   return total;
 }
 
+function numberField(value: unknown, key: string): number | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record[key] === 'number' ? record[key] : undefined;
+}
+
+function breakdownTotalScore(breakdown: TokenBreakdown): number {
+  return (breakdown.input || 0) + (breakdown.output || 0);
+}
+
+export function extractTokenBreakdownFromInfo(info: unknown): TokenBreakdown | undefined {
+  if (!info || typeof info !== 'object') {
+    return undefined;
+  }
+
+  const source = info as Record<string, unknown>;
+  const total = source.total_token_usage;
+  const last = source.last_token_usage;
+
+  const toBreakdown = (value: unknown): TokenBreakdown | undefined => {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    const breakdown: TokenBreakdown = {
+      input: numberField(value, 'input_tokens'),
+      cached: numberField(value, 'cached_input_tokens'),
+      output: numberField(value, 'output_tokens'),
+      reasoning: numberField(value, 'reasoning_output_tokens'),
+    };
+    if (!breakdown.input && !breakdown.cached && !breakdown.output && !breakdown.reasoning) {
+      return undefined;
+    }
+    breakdown.cacheHitRate = cacheHitRateForBreakdown(breakdown);
+    return breakdown;
+  };
+
+  const totalBreakdown = toBreakdown(total);
+  const lastBreakdown = toBreakdown(last);
+  if (totalBreakdown && lastBreakdown) {
+    return breakdownTotalScore(totalBreakdown) >= breakdownTotalScore(lastBreakdown) ? totalBreakdown : lastBreakdown;
+  }
+  return totalBreakdown || lastBreakdown;
+}
+
 async function readSessionFile(filePath: string, archived: boolean, idleCapMs: number): Promise<SessionTiming> {
   const timestamps: Date[] = [];
   let id = path.basename(filePath, '.jsonl');
   let cwd: string | undefined;
   let model: string | undefined;
   let parseWarnings = 0;
+  let tokenBreakdown: TokenBreakdown | undefined;
 
   const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
   const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -77,6 +126,13 @@ async function readSessionFile(filePath: string, archived: boolean, idleCapMs: n
           timestamps.push(startedAt);
         }
       }
+
+      if (parsed.type === 'event_msg' && parsed.payload?.type === 'token_count') {
+        const candidate = extractTokenBreakdownFromInfo(parsed.payload.info);
+        if (candidate && (!tokenBreakdown || breakdownTotalScore(candidate) >= breakdownTotalScore(tokenBreakdown))) {
+          tokenBreakdown = candidate;
+        }
+      }
     } catch {
       parseWarnings += 1;
     }
@@ -92,6 +148,7 @@ async function readSessionFile(filePath: string, archived: boolean, idleCapMs: n
     start: sorted[0],
     end: sorted[sorted.length - 1],
     activeMs: addActiveGap(sorted, idleCapMs),
+    tokenBreakdown,
     parseWarnings,
   };
 }

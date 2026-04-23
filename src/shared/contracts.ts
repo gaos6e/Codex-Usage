@@ -143,10 +143,18 @@ export interface DailyUsageBucket {
   tokenBreakdown?: TokenBreakdown;
 }
 
+export interface DailyAverageSummary {
+  calendarDays: number;
+  tokensPerDay: number;
+  agentTimePerDayMs: number;
+  runsPerDay: number;
+}
+
 export interface MetricCard {
   id: string;
   labelKey: string;
-  value: string;
+  value?: string;
+  valueKey?: string;
   sublabelKey?: string;
   sublabel?: string;
   sublabelArgs?: Record<string, string | number | boolean | null | undefined>;
@@ -169,6 +177,8 @@ export interface UsageSnapshot {
     last90Tokens: number;
     allTimeTokens: number;
     averageTokensPerRun: number;
+    averageTokensPerDay: number;
+    cacheHitRate?: number;
     peakDay?: DailyUsageBucket;
     breakdown?: TokenBreakdown;
   };
@@ -181,6 +191,9 @@ export interface UsageSnapshot {
     runs: number;
     averageTimePerRunMs: number;
     averageTimePerActiveDayMs: number;
+    averageTimePerDayMs: number;
+    averageRunsPerDay: number;
+    calendarDays: number;
     peakDay?: DailyUsageBucket;
     longestStreakDays: number;
     activeDays: number;
@@ -194,7 +207,7 @@ export interface ProjectDetail {
   daily: DailyUsageBucket[];
   runs: RunRecord[];
   tokensByModel: Array<{ model: string; tokens: number; runs: number }>;
-  peakDays: DailyUsageBucket[];
+  dailyAverage: DailyAverageSummary;
   recentSessions: RunRecord[];
 }
 

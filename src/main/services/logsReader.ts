@@ -1,6 +1,7 @@
 import fs from 'fs';
 import Database from 'better-sqlite3';
 import type { DiagnosticWarning, TokenBreakdown } from '../../shared/contracts';
+import { cacheHitRateForBreakdown } from '../../shared/usageMath';
 
 export interface LogsReadResult {
   byThreadId: Map<string, TokenBreakdown>;
@@ -46,29 +47,103 @@ function addTokenValue(result: TokenBreakdown, key: NumericBreakdownKey, value: 
   result[key] = (result[key] || 0) + value;
 }
 
-function extractBreakdownFromText(body: string): TokenBreakdown {
-  let result: TokenBreakdown = {};
+function getNumberField(value: unknown, key: string): number {
+  if (!value || typeof value !== 'object') {
+    return 0;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record[key] === 'number' ? record[key] : 0;
+}
+
+function extractBreakdownFromUsage(usage: unknown): TokenBreakdown {
+  if (!usage || typeof usage !== 'object') {
+    return {};
+  }
+  const record = usage as Record<string, unknown>;
+  const inputDetails = record.input_tokens_details;
+  const outputDetails = record.output_tokens_details;
+  const breakdown: TokenBreakdown = {
+    input: getNumberField(record, 'input_tokens'),
+    output: getNumberField(record, 'output_tokens'),
+    cached: getNumberField(inputDetails, 'cached_tokens'),
+    reasoning: getNumberField(outputDetails, 'reasoning_tokens'),
+  };
+  breakdown.cacheHitRate = cacheHitRateForBreakdown(breakdown);
+  return breakdown;
+}
+
+function parseEmbeddedJson(body: string): unknown {
+  const jsonStart = body.indexOf('{');
+  if (jsonStart < 0) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(body.slice(jsonStart));
+  } catch {
+    return undefined;
+  }
+}
+
+function extractBreakdownFromStructuredBody(body: string): TokenBreakdown {
   const trimmed = body.trim();
+  let parsed: unknown;
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      result = extractTokenFields(JSON.parse(trimmed));
+      parsed = JSON.parse(trimmed);
     } catch {
-      result = {};
+      parsed = undefined;
+    }
+  } else {
+    parsed = parseEmbeddedJson(body);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
+  }
+
+  const event = parsed as Record<string, unknown>;
+  const response = event.response;
+  if (response && typeof response === 'object') {
+    const usage = (response as Record<string, unknown>).usage;
+    const breakdown = extractBreakdownFromUsage(usage);
+    if (breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
+      return breakdown;
     }
   }
 
+  const directBreakdown = extractBreakdownFromUsage(event.usage);
+  if (directBreakdown.input || directBreakdown.output || directBreakdown.cached || directBreakdown.reasoning) {
+    return directBreakdown;
+  }
+
+  return extractTokenFields(parsed);
+}
+
+function addRegexMatches(result: TokenBreakdown, key: NumericBreakdownKey, regex: RegExp, body: string): void {
+  for (const match of body.matchAll(regex)) {
+    addTokenValue(result, key, Number(match[1]));
+  }
+}
+
+export function extractBreakdownFromText(body: string): TokenBreakdown {
+  let result: TokenBreakdown = {};
+  const structured = extractBreakdownFromStructuredBody(body);
+  if (structured.input || structured.output || structured.cached || structured.reasoning) {
+    result = structured;
+  }
+
   const regexMap: Array<[NumericBreakdownKey, RegExp]> = [
-    ['input', /input[_-]?tokens?["'\s:=]+(\d+)/i],
-    ['output', /output[_-]?tokens?["'\s:=]+(\d+)/i],
-    ['cached', /cached[_-]?tokens?["'\s:=]+(\d+)/i],
-    ['reasoning', /reasoning[_-]?tokens?["'\s:=]+(\d+)/i],
+    ['input', /input[_-]?tokens?["'\s:=]+(\d+)/gi],
+    ['output', /output[_-]?tokens?["'\s:=]+(\d+)/gi],
+    ['cached', /cached[_-]?tokens?["'\s:=]+(\d+)/gi],
+    ['reasoning', /reasoning[_-]?tokens?["'\s:=]+(\d+)/gi],
   ];
-  for (const [key, regex] of regexMap) {
-    const match = body.match(regex);
-    if (match) {
-      addTokenValue(result, key, Number(match[1]));
+  if (!result.input && !result.output && !result.cached && !result.reasoning) {
+    for (const [key, regex] of regexMap) {
+      addRegexMatches(result, key, regex, body);
     }
   }
+  result.cacheHitRate = cacheHitRateForBreakdown(result);
   return result;
 }
 
@@ -151,11 +226,7 @@ export function readLogsDb(dbPath: string, enabled: boolean): LogsReadResult {
     }
 
     for (const breakdown of byThreadId.values()) {
-      const input = breakdown.input || 0;
-      const cached = breakdown.cached || 0;
-      if (input > 0) {
-        breakdown.cacheHitRate = cached / input;
-      }
+      breakdown.cacheHitRate = cacheHitRateForBreakdown(breakdown);
     }
 
     if (parsed === 0) {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { ProjectDetail as ProjectDetailType, UsageFilters } from '../../shared/contracts';
-import { formatDuration, formatTokens } from '../../shared/formatting';
+import { formatDecimal, formatDuration, formatTokens } from '../../shared/formatting';
 import { DailyChart } from '../components/DailyChart';
 import { RunsTable } from '../components/RunsTable';
 import { useI18n } from '../i18n/I18nContext';
@@ -85,10 +85,11 @@ export function ProjectDetail({ workspaceId, filters }: Props): React.ReactEleme
             ))}
           </div>
           <div className="inspector-section">
-            <h3>{t('project.peakDays')}</h3>
-            {detail.peakDays.slice(0, 5).map((day) => (
-              <p key={day.key}><strong>{day.key}</strong> {formatTokens(day.tokens)} tokens, {formatDuration(day.agentTimeMs)}</p>
-            ))}
+            <h3>{t('project.dailyAverage')}</h3>
+            <p><strong>{formatTokens(detail.dailyAverage.tokensPerDay)}</strong> {t('metric.avgTokensPerDay')}</p>
+            <p><strong>{formatDuration(detail.dailyAverage.agentTimePerDayMs)}</strong> {t('metric.avgTimePerDay')}</p>
+            <p><strong>{formatDecimal(detail.dailyAverage.runsPerDay)}</strong> {t('metric.avgRunsPerDay')}</p>
+            <p className="help-text">{t('metric.calendarDays', { count: detail.dailyAverage.calendarDays })}</p>
           </div>
           <div className="inspector-section">
             <h3>{t('project.recentSessions')}</h3>

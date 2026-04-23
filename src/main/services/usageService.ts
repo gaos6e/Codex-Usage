@@ -13,7 +13,7 @@ import type {
   UsageSnapshot,
   WorkspaceSummary,
 } from '../../shared/contracts';
-import { formatDuration, formatInteger, formatTokens } from '../../shared/formatting';
+import { formatDuration, formatInteger, formatPercent, formatTokens } from '../../shared/formatting';
 import { ALL_WORKSPACES_ID, anonymizePath } from '../../shared/pathUtils';
 import {
   bucketKey,
@@ -23,6 +23,7 @@ import {
   resolveTimeRange,
   ResolvedRange,
 } from '../../shared/timeRange';
+import { averagePerDay, cacheHitRateForBreakdown, calendarDaysInRange } from '../../shared/usageMath';
 import type { AppPaths } from './appPaths';
 import { detectSources, SourceDetection } from './sourceDetector';
 import { readLogsDb } from './logsReader';
@@ -40,9 +41,12 @@ interface UsageData {
 }
 
 interface CacheEnvelope {
+  version?: number;
   fingerprint: string;
   data: UsageData;
 }
+
+const CACHE_SCHEMA_VERSION = 3;
 
 function reviveDate(value: unknown): Date | undefined {
   if (!value) {
@@ -56,6 +60,18 @@ function reviveDate(value: unknown): Date | undefined {
     return Number.isNaN(date.getTime()) ? undefined : date;
   }
   return undefined;
+}
+
+function hasBreakdownValues(breakdown: TokenBreakdown | undefined): boolean {
+  return Boolean(
+    breakdown
+    && (
+      breakdown.input !== undefined
+      || breakdown.output !== undefined
+      || breakdown.cached !== undefined
+      || breakdown.reasoning !== undefined
+    ),
+  );
 }
 
 export class UsageService {
@@ -144,7 +160,7 @@ export class UsageService {
     };
     this.currentData = data;
     this.currentSettings = settings;
-    this.saveCache({ fingerprint, data });
+    this.saveCache({ version: CACHE_SCHEMA_VERSION, fingerprint, data });
     return data;
   }
 
@@ -186,7 +202,12 @@ export class UsageService {
       daily: snapshot.daily,
       runs,
       tokensByModel: [...modelMap.values()].sort((a, b) => b.tokens - a.tokens),
-      peakDays: [...snapshot.daily].sort((a, b) => b.tokens + b.agentTimeMs - (a.tokens + a.agentTimeMs)).slice(0, 7),
+      dailyAverage: {
+        calendarDays: snapshot.timeSummary.calendarDays,
+        tokensPerDay: snapshot.tokenSummary.averageTokensPerDay,
+        agentTimePerDayMs: snapshot.timeSummary.averageTimePerDayMs,
+        runsPerDay: snapshot.timeSummary.averageRunsPerDay,
+      },
       recentSessions: runs.slice(0, 10),
     };
   }
@@ -228,19 +249,24 @@ export class UsageService {
     const last30 = sumFor(fixedRanges.last30);
     const last90 = sumFor(fixedRanges.last90);
     const all = sumFor(fixedRanges.all);
+    const calendarDays = calendarDaysInRange(range);
     const activeDays = new Set(scopedRuns.map((run) => localDateKey(new Date(run.startTime)))).size;
     const peakByTime = [...daily].sort((a, b) => b.agentTimeMs - a.agentTimeMs)[0];
     const peakByTokens = [...daily].sort((a, b) => b.tokens - a.tokens)[0];
     const longestStreakDays = this.longestStreak(scopedRuns);
     const averageTimePerRunMs = scopedRuns.length ? selected.agentTimeMs / scopedRuns.length : 0;
     const averageTimePerActiveDayMs = activeDays ? selected.agentTimeMs / activeDays : 0;
+    const averageTimePerDayMs = averagePerDay(selected.agentTimeMs, calendarDays);
+    const averageRunsPerDay = averagePerDay(selected.runs, calendarDays);
     const averageTokensPerRun = scopedRuns.length ? selected.tokens / scopedRuns.length : 0;
+    const averageTokensPerDay = averagePerDay(selected.tokens, calendarDays);
     const breakdown = this.sumBreakdown(scopedRuns);
+    const cacheHitRate = cacheHitRateForBreakdown(breakdown);
 
     const timeCards: MetricCard[] = [
       { id: 'selected-time', labelKey: 'metric.agentTime', value: formatDuration(selected.agentTimeMs), sublabel: range.label, tone: 'blue' },
       { id: 'runs', labelKey: 'metric.runs', value: formatInteger(selected.runs), sublabelKey: 'metric.selectedRange' },
-      { id: 'avg-run-time', labelKey: 'metric.avgTimePerRun', value: formatDuration(averageTimePerRunMs) },
+      { id: 'avg-day-time', labelKey: 'metric.avgTimePerDay', value: formatDuration(averageTimePerDayMs), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
       { id: 'active-days', labelKey: 'metric.activeDays', value: formatInteger(activeDays), sublabelKey: 'metric.longestStreakDays', sublabelArgs: { count: longestStreakDays } },
       { id: 'last7-time', labelKey: 'metric.last7Days', value: formatDuration(last7.agentTimeMs) },
       { id: 'last30-time', labelKey: 'metric.last30Days', value: formatDuration(last30.agentTimeMs) },
@@ -251,7 +277,20 @@ export class UsageService {
       { id: 'selected-tokens', labelKey: 'metric.tokens', value: formatTokens(selected.tokens), sublabel: range.label, tone: 'blue' },
       { id: 'today-tokens', labelKey: 'metric.today', value: formatTokens(today.tokens) },
       { id: 'avg-tokens', labelKey: 'metric.avgTokensPerRun', value: formatTokens(averageTokensPerRun) },
-      { id: 'peak-token-day', labelKey: 'metric.peakDay', value: peakByTokens ? formatTokens(peakByTokens.tokens) : '0', sublabel: peakByTokens?.key },
+      { id: 'avg-day-tokens', labelKey: 'metric.avgTokensPerDay', value: formatTokens(averageTokensPerDay), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
+      cacheHitRate !== undefined
+        ? {
+            id: 'token-cache-hit-rate',
+            labelKey: 'metric.tokenCacheHitRate',
+            value: formatPercent(cacheHitRate),
+            sublabelKey: 'metric.currentRangeCachedInputTokens',
+            sublabelArgs: {
+              cached: formatTokens(breakdown.cached || 0),
+              input: formatTokens(breakdown.input || 0),
+            },
+            tone: 'success',
+          }
+        : { id: 'token-cache-hit-rate', labelKey: 'metric.tokenCacheHitRate', valueKey: 'metric.unavailable', tone: 'warning' },
       { id: 'last7-tokens', labelKey: 'metric.last7Days', value: formatTokens(last7.tokens) },
       { id: 'last30-tokens', labelKey: 'metric.last30Days', value: formatTokens(last30.tokens) },
       { id: 'last90-tokens', labelKey: 'metric.last90Days', value: formatTokens(last90.tokens) },
@@ -274,6 +313,8 @@ export class UsageService {
         last90Tokens: last90.tokens,
         allTimeTokens: all.tokens,
         averageTokensPerRun,
+        averageTokensPerDay,
+        cacheHitRate,
         peakDay: peakByTokens,
         breakdown,
       },
@@ -286,6 +327,9 @@ export class UsageService {
         runs: selected.runs,
         averageTimePerRunMs,
         averageTimePerActiveDayMs,
+        averageTimePerDayMs,
+        averageRunsPerDay,
+        calendarDays,
         peakDay: peakByTime,
         longestStreakDays,
         activeDays,
@@ -316,7 +360,9 @@ export class UsageService {
         const durationMs = durationMethod === 'jsonl-events'
           ? Number(timing?.activeMs || 0)
           : Math.min(fallbackDuration, maxSingleRunMs);
-        const breakdown = logBreakdowns.get(thread.id);
+        const jsonlBreakdown = timing?.tokenBreakdown;
+        const logBreakdown = logBreakdowns.get(thread.id);
+        const breakdown = this.resolveRunBreakdown(jsonlBreakdown, logBreakdown);
         return {
           id: thread.id,
           title: thread.title,
@@ -471,10 +517,23 @@ export class UsageService {
       reasoning: (a.reasoning || 0) + (b.reasoning || 0),
       unavailableReason: b.unavailableReason || a.unavailableReason,
     };
-    if (merged.input && merged.cached) {
-      merged.cacheHitRate = merged.cached / merged.input;
-    }
+    merged.cacheHitRate = cacheHitRateForBreakdown(merged);
     return merged;
+  }
+
+  private resolveRunBreakdown(primary?: TokenBreakdown, fallback?: TokenBreakdown): TokenBreakdown | undefined {
+    if (!hasBreakdownValues(primary) && !hasBreakdownValues(fallback)) {
+      return undefined;
+    }
+    const resolved: TokenBreakdown = {
+      input: primary?.input ?? fallback?.input,
+      output: primary?.output ?? fallback?.output,
+      cached: primary?.cached ?? fallback?.cached,
+      reasoning: primary?.reasoning ?? fallback?.reasoning,
+      unavailableReason: primary?.unavailableReason || fallback?.unavailableReason,
+    };
+    resolved.cacheHitRate = cacheHitRateForBreakdown(resolved);
+    return resolved;
   }
 
   private findBounds(runs: RunRecord[]): { start?: Date; end?: Date } {
@@ -503,6 +562,7 @@ export class UsageService {
       statPart(detection.sessionsDir),
       statPart(detection.archivedSessionsDir),
       JSON.stringify({
+        tokenBreakdownParserVersion: 3,
         codexDir: settings.codexDir,
         includeArchivedSessions: settings.includeArchivedSessions,
         includeDetailedLogs: settings.includeDetailedLogs,
@@ -520,6 +580,9 @@ export class UsageService {
         return null;
       }
       const envelope = JSON.parse(fs.readFileSync(this.paths.cachePath, 'utf8')) as CacheEnvelope;
+      if (envelope.version !== CACHE_SCHEMA_VERSION) {
+        return null;
+      }
       if (envelope.fingerprint !== fingerprint) {
         return null;
       }
@@ -535,6 +598,9 @@ export class UsageService {
         return null;
       }
       const envelope = JSON.parse(fs.readFileSync(this.paths.cachePath, 'utf8')) as CacheEnvelope;
+      if (envelope.version !== CACHE_SCHEMA_VERSION) {
+        return null;
+      }
       return this.hydrateCachedData(envelope.data, 'fresh');
     } catch {
       return null;

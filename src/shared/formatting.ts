@@ -12,6 +12,17 @@ export function formatTokens(value: number): string {
   return formatInteger(value);
 }
 
+export function formatDecimal(value: number, maximumFractionDigits = 1): string {
+  return (value || 0).toLocaleString(undefined, {
+    maximumFractionDigits,
+  });
+}
+
+export function formatPercent(value: number): string {
+  const percent = Math.max(0, value || 0) * 100;
+  return `${formatDecimal(percent)}%`;
+}
+
 export function formatDuration(ms: number): string {
   const totalMinutes = Math.max(0, Math.round((ms || 0) / 60000));
   const hours = Math.floor(totalMinutes / 60);
