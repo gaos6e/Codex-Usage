@@ -3,28 +3,45 @@ import type { ProjectDetail as ProjectDetailType, UsageFilters } from '../../sha
 import { formatDecimal, formatDuration, formatTokens } from '../../shared/formatting';
 import { DailyChart } from '../components/DailyChart';
 import { RunsTable } from '../components/RunsTable';
+import { TimeRangeControls } from '../components/TimeRangeControls';
 import { useI18n } from '../i18n/I18nContext';
 
 interface Props {
   workspaceId: string | null;
   filters: UsageFilters;
+  onFiltersChange: (filters: UsageFilters) => void;
 }
 
-export function ProjectDetail({ workspaceId, filters }: Props): React.ReactElement {
+export function ProjectDetail({ workspaceId, filters, onFiltersChange }: Props): React.ReactElement {
   const [detail, setDetail] = useState<ProjectDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
 
   useEffect(() => {
     if (!workspaceId) {
+      setDetail(null);
+      setError(null);
       return;
     }
+    let cancelled = false;
+    setDetail(null);
+    setError(null);
     window.codexUsage.getProjectDetail(workspaceId, filters)
       .then((result) => {
+        if (cancelled) {
+          return;
+        }
         setDetail(result);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [workspaceId, filters]);
 
   if (!workspaceId) {
@@ -61,11 +78,14 @@ export function ProjectDetail({ workspaceId, filters }: Props): React.ReactEleme
           <p title={detail.workspace.normalizedPath}>{detail.workspace.normalizedPath}</p>
         </div>
         <div className="project-stats">
-          <span>{formatTokens(detail.workspace.tokens)} tokens</span>
-          <span>{formatDuration(detail.workspace.agentTimeMs)} agent time</span>
-          <span>{detail.workspace.runs} runs</span>
+          <span>{formatTokens(detail.workspace.tokens)} {t('metric.tokens')}</span>
+          <span>{formatDuration(detail.workspace.agentTimeMs)} {t('metric.agentTime')}</span>
+          <span>{detail.workspace.runs} {t('metric.runs')}</span>
         </div>
       </div>
+      <section className="control-strip project-control-strip" aria-label={t('project.filters')}>
+        <TimeRangeControls filters={filters} onFiltersChange={onFiltersChange} />
+      </section>
       <section className="workspace-layout">
         <div className="primary-workspace">
           <div className="section-heading"><h2>{t('project.usageOverTime')}</h2></div>

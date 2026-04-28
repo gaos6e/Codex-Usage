@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, Folder, Gauge, Settings as SettingsIcon, Stethoscope } from 'lucide-react';
+import { Activity, BarChart3, ChevronDown, ChevronRight, Folder, Gauge, Settings as SettingsIcon, Stethoscope } from 'lucide-react';
 import type { AppInfo, AppSettings, ExportKind, ExportPrivacyMode, PageId, UsageFilters, UsageSnapshot } from '../shared/contracts';
 import { ALL_WORKSPACES_ID } from '../shared/pathUtils';
 import { Dashboard } from './pages/Dashboard';
@@ -22,6 +22,7 @@ export function App(): React.ReactElement {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [projectListExpanded, setProjectListExpanded] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
 
@@ -132,6 +133,7 @@ export function App(): React.ReactElement {
   const openProject = (workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);
     setFilters((current) => ({ ...current, workspaceId }));
+    setProjectListExpanded(true);
     setPage('project');
   };
 
@@ -151,10 +153,39 @@ export function App(): React.ReactElement {
               <BarChart3 size={16} />
               <span className="sidebar-nav-label">{t('nav.dashboard')}</span>
             </button>
-            <button className={page === 'project' ? 'active' : ''} onClick={() => setPage('project')}>
-              <Folder size={16} />
-              <span className="sidebar-nav-label">{t('nav.projectDetail')}</span>
-            </button>
+            <div className="sidebar-nav-group">
+              <div className="sidebar-nav-row">
+                <button className={page === 'project' ? 'active sidebar-page-button' : 'sidebar-page-button'} onClick={() => setPage('project')}>
+                  <Folder size={16} />
+                  <span className="sidebar-nav-label">{t('nav.projectDetail')}</span>
+                </button>
+                <button
+                  className="sidebar-expander"
+                  onClick={() => setProjectListExpanded((current) => !current)}
+                  aria-expanded={projectListExpanded}
+                  aria-label={projectListExpanded ? t('sidebar.collapseTopWorkspaces') : t('sidebar.expandTopWorkspaces')}
+                  title={projectListExpanded ? t('sidebar.collapseTopWorkspaces') : t('sidebar.expandTopWorkspaces')}
+                >
+                  {projectListExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                </button>
+              </div>
+              {projectListExpanded ? (
+                <div className="workspace-subnav">
+                  <div className="sidebar-subheading">{t('sidebar.topWorkspaces')}</div>
+                  {snapshot?.workspaces.slice(0, 8).map((workspace) => (
+                    <button
+                      key={workspace.id}
+                      className={projectWorkspaceId === workspace.id ? 'workspace-nav active' : 'workspace-nav'}
+                      onClick={() => openProject(workspace.id)}
+                      title={workspace.normalizedPath}
+                    >
+                      <Activity size={14} />
+                      <span>{workspace.displayName}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
               <SettingsIcon size={16} />
               <span className="sidebar-nav-label">{t('nav.settings')}</span>
@@ -164,15 +195,6 @@ export function App(): React.ReactElement {
               <span className="sidebar-nav-label">{t('nav.diagnostics')}</span>
             </button>
           </nav>
-          <div className="sidebar-section">
-            <h2>{t('sidebar.topWorkspaces')}</h2>
-            {snapshot?.workspaces.slice(0, 8).map((workspace) => (
-              <button key={workspace.id} className="workspace-nav" onClick={() => openProject(workspace.id)} title={workspace.normalizedPath}>
-                <Activity size={14} />
-                <span>{workspace.displayName}</span>
-              </button>
-            ))}
-          </div>
         </aside>
 
         <div className="main-area">
@@ -201,7 +223,7 @@ export function App(): React.ReactElement {
               onOpenProject={openProject}
             />
           ) : null}
-          {page === 'project' ? <ProjectDetail workspaceId={projectWorkspaceId} filters={filters} /> : null}
+          {page === 'project' ? <ProjectDetail workspaceId={projectWorkspaceId} filters={filters} onFiltersChange={setFilters} /> : null}
           {page === 'settings' ? <Settings settings={settings} onSave={saveSettings} /> : null}
           {page === 'diagnostics' ? <Diagnostics /> : null}
         </div>

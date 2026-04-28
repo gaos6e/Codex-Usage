@@ -1,11 +1,12 @@
 import React from 'react';
 import { Download, RefreshCw } from 'lucide-react';
-import type { AppSettings, ExportKind, ExportPrivacyMode, TimeRangePreset, UsageFilters, UsageSnapshot } from '../../shared/contracts';
+import type { AppSettings, ExportKind, ExportPrivacyMode, UsageFilters, UsageSnapshot } from '../../shared/contracts';
 import { ALL_WORKSPACES_ID } from '../../shared/pathUtils';
 import { formatDateTime } from '../../shared/formatting';
 import { MetricCard } from '../components/MetricCard';
 import { DailyChart } from '../components/DailyChart';
 import { RunsTable } from '../components/RunsTable';
+import { TimeRangeControls } from '../components/TimeRangeControls';
 import { useI18n } from '../i18n/I18nContext';
 
 interface Props {
@@ -18,15 +19,6 @@ interface Props {
   onExport: (kind: ExportKind, privacyMode: ExportPrivacyMode) => void;
   onOpenProject: (workspaceId: string) => void;
 }
-
-const presets: Array<{ id: TimeRangePreset; label: string }> = [
-  { id: 'today', label: 'Today' },
-  { id: 'last7', label: 'Last 7 days' },
-  { id: 'last30', label: 'Last 30 days' },
-  { id: 'last90', label: 'Last 90 days' },
-  { id: 'all', label: 'All time' },
-  { id: 'custom', label: 'Custom' },
-];
 
 export function Dashboard({ snapshot, filters, settings, loading, onFiltersChange, onRefresh, onExport, onOpenProject }: Props): React.ReactElement {
   const warnings = snapshot?.diagnostics.warnings.filter((warning) => warning.severity !== 'info') || [];
@@ -63,47 +55,7 @@ export function Dashboard({ snapshot, filters, settings, loading, onFiltersChang
           </select>
         </label>
 
-        <label>
-          {t('filter.range')}
-          <select
-            value={filters.range.preset}
-            onChange={(event) => onFiltersChange({
-              ...filters,
-              range: { ...filters.range, preset: event.target.value as TimeRangePreset },
-            })}
-          >
-            {presets.map((preset) => <option key={preset.id} value={preset.id}>{t(`timeRange.${preset.id}`)}</option>)}
-          </select>
-        </label>
-
-        {filters.range.preset === 'custom' ? (
-          <>
-            <label>
-              {t('filter.start')}
-              <input type="date" value={filters.range.startDate || ''} onChange={(event) => onFiltersChange({ ...filters, range: { ...filters.range, startDate: event.target.value } })} />
-            </label>
-            <label>
-              {t('filter.end')}
-              <input type="date" value={filters.range.endDate || ''} onChange={(event) => onFiltersChange({ ...filters, range: { ...filters.range, endDate: event.target.value } })} />
-            </label>
-          </>
-        ) : null}
-
-        <label>
-          {t('filter.aggregation')}
-          <select
-            value={filters.range.aggregation || 'daily'}
-            onChange={(event) => onFiltersChange({ ...filters, range: { ...filters.range, aggregation: event.target.value as 'daily' | 'weekly' } })}
-          >
-            <option value="daily">{t('filter.daily')}</option>
-            <option value="weekly">{t('filter.weekly')}</option>
-          </select>
-        </label>
-
-        <div className="segmented" role="tablist" aria-label={t('view.time')}>
-          <button className={filters.view === 'time' ? 'selected' : ''} onClick={() => onFiltersChange({ ...filters, view: 'time' })}>{t('view.time')}</button>
-          <button className={filters.view === 'tokens' ? 'selected' : ''} onClick={() => onFiltersChange({ ...filters, view: 'tokens' })}>{t('view.tokens')}</button>
-        </div>
+        <TimeRangeControls filters={filters} onFiltersChange={onFiltersChange} />
       </section>
 
       {warnings.length ? (

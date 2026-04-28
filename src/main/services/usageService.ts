@@ -262,21 +262,21 @@ export class UsageService {
     const averageTokensPerDay = averagePerDay(selected.tokens, calendarDays);
     const breakdown = this.sumBreakdown(scopedRuns);
     const cacheHitRate = cacheHitRateForBreakdown(breakdown);
+    const selectedRangeDescriptor = filters.range.preset === 'custom'
+      ? {
+          sublabel: `${localDateKey(range.start)} - ${localDateKey(new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate() - 1))}`,
+        }
+      : { sublabelKey: `timeRange.${filters.range.preset}` };
 
     const timeCards: MetricCard[] = [
-      { id: 'selected-time', labelKey: 'metric.agentTime', value: formatDuration(selected.agentTimeMs), sublabel: range.label, tone: 'blue' },
-      { id: 'runs', labelKey: 'metric.runs', value: formatInteger(selected.runs), sublabelKey: 'metric.selectedRange' },
+      { id: 'selected-time', labelKey: 'metric.agentTime', value: formatDuration(selected.agentTimeMs), ...selectedRangeDescriptor, tone: 'blue' },
+      { id: 'runs', labelKey: 'metric.runs', value: formatInteger(selected.runs), ...selectedRangeDescriptor },
       { id: 'avg-day-time', labelKey: 'metric.avgTimePerDay', value: formatDuration(averageTimePerDayMs), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
       { id: 'active-days', labelKey: 'metric.activeDays', value: formatInteger(activeDays), sublabelKey: 'metric.longestStreakDays', sublabelArgs: { count: longestStreakDays } },
-      { id: 'last7-time', labelKey: 'metric.last7Days', value: formatDuration(last7.agentTimeMs) },
-      { id: 'last30-time', labelKey: 'metric.last30Days', value: formatDuration(last30.agentTimeMs) },
-      { id: 'last90-time', labelKey: 'metric.last90Days', value: formatDuration(last90.agentTimeMs) },
       { id: 'all-time', labelKey: 'metric.allTime', value: formatDuration(all.agentTimeMs) },
     ];
     const tokenCards: MetricCard[] = [
-      { id: 'selected-tokens', labelKey: 'metric.tokens', value: formatTokens(selected.tokens), sublabel: range.label, tone: 'blue' },
-      { id: 'today-tokens', labelKey: 'metric.today', value: formatTokens(today.tokens) },
-      { id: 'avg-tokens', labelKey: 'metric.avgTokensPerRun', value: formatTokens(averageTokensPerRun) },
+      { id: 'selected-tokens', labelKey: 'metric.tokens', value: formatTokens(selected.tokens), ...selectedRangeDescriptor, tone: 'blue' },
       { id: 'avg-day-tokens', labelKey: 'metric.avgTokensPerDay', value: formatTokens(averageTokensPerDay), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
       cacheHitRate !== undefined
         ? {
@@ -291,9 +291,7 @@ export class UsageService {
             tone: 'success',
           }
         : { id: 'token-cache-hit-rate', labelKey: 'metric.tokenCacheHitRate', valueKey: 'metric.unavailable', tone: 'warning' },
-      { id: 'last7-tokens', labelKey: 'metric.last7Days', value: formatTokens(last7.tokens) },
-      { id: 'last30-tokens', labelKey: 'metric.last30Days', value: formatTokens(last30.tokens) },
-      { id: 'last90-tokens', labelKey: 'metric.last90Days', value: formatTokens(last90.tokens) },
+      { id: 'avg-tokens', labelKey: 'metric.avgTokensPerRun', value: formatTokens(averageTokensPerRun), ...selectedRangeDescriptor },
       { id: 'all-tokens', labelKey: 'metric.allTime', value: formatTokens(all.tokens) },
     ];
 

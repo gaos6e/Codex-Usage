@@ -114,6 +114,45 @@ select:focus-visible {
   margin-bottom: 18px;
 }
 
+.sidebar-nav-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sidebar-nav-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sidebar-page-button {
+  min-width: 0;
+}
+
+.sidebar-expander {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.workspace-subnav {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0 0 8px 24px;
+}
+
+.sidebar-subheading {
+  padding: 5px 8px 3px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .sidebar-section h2 {
   margin: 10px 8px 6px;
   text-transform: uppercase;
@@ -150,6 +189,11 @@ select:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-subnav .workspace-nav {
+  min-height: 32px;
+  padding-left: 8px;
 }
 
 .main-area {
@@ -869,8 +913,14 @@ label select {
 
   .brand div,
   .sidebar-nav-label,
-  .sidebar-section {
+  .sidebar-section,
+  .workspace-subnav,
+  .sidebar-expander {
     display: none;
+  }
+
+  .sidebar-nav-row {
+    display: block;
   }
 
   .sidebar button {
