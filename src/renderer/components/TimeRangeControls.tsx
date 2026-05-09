@@ -1,6 +1,7 @@
 import React from 'react';
-import type { AggregationMode, TimeRangePreset, UsageFilters } from '../../shared/contracts';
+import type { TimeRangePreset, UsageFilters } from '../../shared/contracts';
 import { useI18n } from '../i18n/I18nContext';
+import { SelectMenu } from './SelectMenu';
 
 interface Props {
   filters: UsageFilters;
@@ -15,21 +16,21 @@ export function TimeRangeControls({ filters, onFiltersChange, showViewToggle = t
 
   return (
     <>
-      <label>
+      <label className="select-field">
         {t('filter.range')}
-        <select
+        <SelectMenu
+          ariaLabel={t('filter.range')}
           value={filters.range.preset}
-          onChange={(event) => onFiltersChange({
+          options={presets.map((preset) => ({ value: preset, label: t(`timeRange.${preset}`) }))}
+          onChange={(preset) => onFiltersChange({
             ...filters,
-            range: { ...filters.range, preset: event.target.value as TimeRangePreset },
+            range: { ...filters.range, preset },
           })}
-        >
-          {presets.map((preset) => <option key={preset} value={preset}>{t(`timeRange.${preset}`)}</option>)}
-        </select>
+        />
       </label>
 
       {filters.range.preset === 'custom' ? (
-        <>
+        <div className="custom-date-fields">
           <label>
             {t('filter.start')}
             <input
@@ -52,28 +53,31 @@ export function TimeRangeControls({ filters, onFiltersChange, showViewToggle = t
               })}
             />
           </label>
-        </>
+        </div>
       ) : null}
 
-      <label>
+      <label className="select-field">
         {t('filter.aggregation')}
-        <select
+        <SelectMenu
+          ariaLabel={t('filter.aggregation')}
           value={filters.range.aggregation || 'daily'}
-          onChange={(event) => onFiltersChange({
+          options={[
+            { value: 'daily', label: t('filter.daily') },
+            { value: 'weekly', label: t('filter.weekly') },
+          ]}
+          onChange={(aggregation) => onFiltersChange({
             ...filters,
-            range: { ...filters.range, aggregation: event.target.value as AggregationMode },
+            range: { ...filters.range, aggregation },
           })}
-        >
-          <option value="daily">{t('filter.daily')}</option>
-          <option value="weekly">{t('filter.weekly')}</option>
-        </select>
+        />
       </label>
 
       {showViewToggle ? (
-        <div className="segmented" role="tablist" aria-label={t('view.metric')}>
+        <div className="segmented" role="group" aria-label={t('view.metric')}>
           <button
             type="button"
             className={filters.view === 'time' ? 'selected' : ''}
+            aria-pressed={filters.view === 'time'}
             onClick={() => onFiltersChange({ ...filters, view: 'time' })}
           >
             {t('view.time')}
@@ -81,6 +85,7 @@ export function TimeRangeControls({ filters, onFiltersChange, showViewToggle = t
           <button
             type="button"
             className={filters.view === 'tokens' ? 'selected' : ''}
+            aria-pressed={filters.view === 'tokens'}
             onClick={() => onFiltersChange({ ...filters, view: 'tokens' })}
           >
             {t('view.tokens')}

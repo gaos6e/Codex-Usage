@@ -15,6 +15,7 @@ export function createDefaultSettings(): AppSettings {
     idleGapMinutes: 30,
     theme: 'system',
     language: 'zh-CN',
+    fontScale: { ui: 1, data: 1 },
     aliases: [],
     ignoredWorkspaces: [normalizeWorkspacePath('C:\\Windows\\System32')],
   };
@@ -49,6 +50,10 @@ export class SettingsStore {
     const theme = settings.theme === 'dark' || settings.theme === 'light' || settings.theme === 'system'
       ? settings.theme
       : defaults.theme;
+    const fontScale = {
+      ui: clampNumber(Number(settings.fontScale?.ui) || defaults.fontScale.ui, 0.9, 1.25),
+      data: clampNumber(Number(settings.fontScale?.data) || defaults.fontScale.data, 0.9, 1.25),
+    };
 
     return {
       codexDir: settings.codexDir || defaults.codexDir,
@@ -58,6 +63,7 @@ export class SettingsStore {
       idleGapMinutes: clampNumber(Number(settings.idleGapMinutes) || defaults.idleGapMinutes, 1, 180),
       theme,
       language: settings.language === 'en' ? 'en' : 'zh-CN',
+      fontScale,
       aliases: Array.isArray(settings.aliases)
         ? settings.aliases.map((alias, index) => ({
             id: alias.id || `alias-${index}`,

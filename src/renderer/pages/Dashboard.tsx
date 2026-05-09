@@ -20,6 +20,11 @@ interface Props {
   onOpenProject: (workspaceId: string) => void;
 }
 
+function formatWorkspaceRunCount(count: number): string {
+  const rounded = Math.max(0, Math.round(count || 0));
+  return rounded > 9999 ? '9999+' : String(rounded);
+}
+
 export function Dashboard({ snapshot, filters, settings, loading, onFiltersChange, onRefresh, onExport, onOpenProject }: Props): React.ReactElement {
   const warnings = snapshot?.diagnostics.warnings.filter((warning) => warning.severity !== 'info') || [];
   const [exportPrivacyMode, setExportPrivacyMode] = React.useState<ExportPrivacyMode>('anonymized-paths');
@@ -35,7 +40,7 @@ export function Dashboard({ snapshot, filters, settings, loading, onFiltersChang
           <span className="status-text">
             {snapshot ? t('dashboard.updated', { time: formatDateTime(snapshot.generatedAt) }) : t('dashboard.updatedNever')}
           </span>
-          <button className="icon-button" onClick={onRefresh} title={t('toolbar.refreshing')} aria-label={t('toolbar.refreshing')}>
+          <button className="icon-button refresh-button" onClick={onRefresh} title={t('toolbar.refresh')} aria-label={t('toolbar.refresh')}>
             <RefreshCw size={17} />
           </button>
         </div>
@@ -108,8 +113,10 @@ export function Dashboard({ snapshot, filters, settings, loading, onFiltersChang
           <div className="workspace-list">
             {snapshot?.workspaces.slice(0, 18).map((workspace) => (
               <button key={workspace.id} onClick={() => onOpenProject(workspace.id)} title={workspace.normalizedPath}>
-                <span>{workspace.displayName}</span>
-                <span>{t('dashboard.matchingRuns', { count: workspace.runs })}</span>
+                <span className="workspace-list__name">{workspace.displayName}</span>
+                <span className="workspace-list__runs" aria-label={t('dashboard.matchingRuns', { count: workspace.runs })}>
+                  {t('dashboard.workspaceRunsCompact', { count: formatWorkspaceRunCount(workspace.runs) })}
+                </span>
               </button>
             ))}
           </div>

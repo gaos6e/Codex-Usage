@@ -17,11 +17,7 @@ export function registerIpcHandlers(paths: AppPaths, settingsStore: SettingsStor
   const exportService = new ExportService(usageService);
 
   ipcMain.handle('settings:get', () => settingsStore.load());
-  ipcMain.handle('settings:save', async (_event, settings) => {
-    const saved = settingsStore.save(settings);
-    await usageService.refresh(true);
-    return saved;
-  });
+  ipcMain.handle('settings:save', (_event, settings) => settingsStore.save(settings));
 
   ipcMain.handle('dialog:codex-directory', async () => {
     const result = await dialog.showOpenDialog(BrowserWindow.getFocusedWindow() || undefined, {
@@ -53,7 +49,6 @@ export function registerIpcHandlers(paths: AppPaths, settingsStore: SettingsStor
   ipcMain.handle('usage:diagnostics', async () => usageService.getDiagnostics());
   ipcMain.handle('usage:refresh', async () => {
     await usageService.refresh(true);
-    return usageService.getSnapshot(defaultFilters);
   });
   ipcMain.handle('usage:export', async (_event, request: ExportRequest) => exportService.exportUsage(request));
   ipcMain.handle('app:info', () => ({

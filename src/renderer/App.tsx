@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, BarChart3, ChevronDown, ChevronRight, Folder, Gauge, Settings as SettingsIcon, Stethoscope } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, BarChart3, ChevronDown, ChevronRight, Folder, Gauge, Settings as SettingsIcon, Sparkles, Stethoscope } from 'lucide-react';
 import type { AppInfo, AppSettings, ExportKind, ExportPrivacyMode, PageId, UsageFilters, UsageSnapshot } from '../shared/contracts';
 import { ALL_WORKSPACES_ID } from '../shared/pathUtils';
 import { Dashboard } from './pages/Dashboard';
@@ -14,6 +14,21 @@ const initialFilters: UsageFilters = {
   range: { preset: 'last7', aggregation: 'daily' },
 };
 
+function waitForRenderCycle(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.setTimeout(resolve, 0));
+  });
+}
+
+function settingsAffectData(previous: AppSettings, next: AppSettings): boolean {
+  return previous.codexDir !== next.codexDir
+    || previous.includeArchivedSessions !== next.includeArchivedSessions
+    || previous.includeDetailedLogs !== next.includeDetailedLogs
+    || previous.idleGapMinutes !== next.idleGapMinutes
+    || JSON.stringify(previous.aliases) !== JSON.stringify(next.aliases)
+    || JSON.stringify(previous.ignoredWorkspaces) !== JSON.stringify(next.ignoredWorkspaces);
+}
+
 export function App(): React.ReactElement {
   const [page, setPage] = useState<PageId>('dashboard');
   const [filters, setFilters] = useState<UsageFilters>(initialFilters);
@@ -21,10 +36,17 @@ export function App(): React.ReactElement {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [projectListExpanded, setProjectListExpanded] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const snapshotRequestId = useRef(0);
+  const settingsSaveRequestId = useRef(0);
+  const settingsRefreshTimer = useRef<number | null>(null);
+  const filtersRef = useRef(filters);
+  const snapshotRef = useRef<UsageSnapshot | null>(null);
+  const settingsRef = useRef<AppSettings | null>(null);
 
   const effectiveTheme = useMemo(() => {
     if (!settings || settings.theme === 'system') {
@@ -34,31 +56,120 @@ export function App(): React.ReactElement {
   }, [settings]);
   const language = settings?.language || 'zh-CN';
   const t = useMemo(() => buildTranslator(language), [language]);
+  const isRefreshing = loading || refreshing;
+  const fontScaleStyle = useMemo(() => ({
+    '--ui-font-scale': String(settings?.fontScale.ui ?? 1),
+    '--data-font-scale': String(settings?.fontScale.data ?? 1),
+  }) as React.CSSProperties, [settings?.fontScale.data, settings?.fontScale.ui]);
+  const pageTitle = useMemo(() => {
+    if (page === 'dashboard') {
+      return t('nav.dashboard');
+    }
+    if (page === 'project') {
+      return t('nav.projectDetail');
+    }
+    if (page === 'settings') {
+      return t('nav.settings');
+    }
+    return t('nav.diagnostics');
+  }, [page, t]);
   const projectWorkspaceId = useMemo(() => {
     if (selectedWorkspaceId && selectedWorkspaceId !== ALL_WORKSPACES_ID) {
       return selectedWorkspaceId;
     }
-    if (filters.workspaceId && filters.workspaceId !== ALL_WORKSPACES_ID) {
-      return filters.workspaceId;
-    }
     return null;
-  }, [selectedWorkspaceId, filters.workspaceId]);
+  }, [selectedWorkspaceId]);
 
-  const loadSnapshot = useCallback(async (nextFilters = filters, background = false) => {
-    setLoading(true);
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const loadSnapshot = useCallback(async (nextFilters = filtersRef.current, background = Boolean(snapshotRef.current)) => {
+    const requestId = snapshotRequestId.current + 1;
+    snapshotRequestId.current = requestId;
+    if (!background) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
+      await waitForRenderCycle();
       const result = await window.codexUsage.getUsageSnapshot(nextFilters);
-      setSnapshot(result);
+      if (requestId === snapshotRequestId.current) {
+        snapshotRef.current = result;
+        setSnapshot(result);
+      }
     } catch (error) {
-      setToast(error instanceof Error ? error.message : String(error));
+      if (requestId === snapshotRequestId.current) {
+        setToast(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      if (!background || !snapshot) {
-        setLoading(false);
-      } else {
-        setLoading(false);
+      if (requestId === snapshotRequestId.current) {
+        if (!background) {
+          setLoading(false);
+        } else {
+          setRefreshing(false);
+        }
       }
     }
-  }, [filters, snapshot]);
+  }, []);
+
+  const refreshUsageSnapshot = useCallback(async (showSuccessToast: boolean) => {
+    const background = Boolean(snapshotRef.current);
+    const requestId = snapshotRequestId.current + 1;
+    snapshotRequestId.current = requestId;
+    if (!background) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
+    try {
+      await waitForRenderCycle();
+      await window.codexUsage.refreshUsage();
+      if (requestId !== snapshotRequestId.current) {
+        return;
+      }
+      await waitForRenderCycle();
+      const result = await window.codexUsage.getUsageSnapshot(filtersRef.current);
+      if (requestId === snapshotRequestId.current) {
+        snapshotRef.current = result;
+        setSnapshot(result);
+        if (showSuccessToast) {
+          setToast(t('toast.refreshSuccess'));
+        }
+      }
+    } catch (error) {
+      if (requestId === snapshotRequestId.current) {
+        setToast(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (requestId === snapshotRequestId.current) {
+        if (!background) {
+          setLoading(false);
+        } else {
+          setRefreshing(false);
+        }
+      }
+    }
+  }, [t]);
+
+  const scheduleSettingsDataRefresh = useCallback(() => {
+    if (settingsRefreshTimer.current) {
+      window.clearTimeout(settingsRefreshTimer.current);
+    }
+    settingsRefreshTimer.current = window.setTimeout(() => {
+      settingsRefreshTimer.current = null;
+      void refreshUsageSnapshot(false);
+    }, 650);
+  }, [refreshUsageSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +184,10 @@ export function App(): React.ReactElement {
           return;
         }
         setSettings(loadedSettings);
+        settingsRef.current = loadedSettings;
         setAppInfo(info);
         if (cachedSnapshot) {
+          snapshotRef.current = cachedSnapshot;
           setSnapshot(cachedSnapshot);
         }
         setBootstrapped(true);
@@ -89,36 +202,52 @@ export function App(): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => () => {
+    if (settingsRefreshTimer.current) {
+      window.clearTimeout(settingsRefreshTimer.current);
+    }
+  }, []);
+
   useEffect(() => {
     if (!bootstrapped) {
       return;
     }
-    loadSnapshot(filters, Boolean(snapshot));
-  }, [bootstrapped, filters]);
+    loadSnapshot(filters, Boolean(snapshotRef.current));
+  }, [bootstrapped, filters, loadSnapshot]);
 
   useEffect(() => {
     if (!settings?.autoRefreshSeconds) {
       return undefined;
     }
-    const timer = window.setInterval(() => loadSnapshot(filters), settings.autoRefreshSeconds * 1000);
+    const timer = window.setInterval(() => loadSnapshot(filters, Boolean(snapshotRef.current)), settings.autoRefreshSeconds * 1000);
     return () => window.clearInterval(timer);
   }, [settings?.autoRefreshSeconds, filters, loadSnapshot]);
 
-  const saveSettings = async (nextSettings: AppSettings) => {
-    const saved = await window.codexUsage.saveSettings(nextSettings);
-    setSettings(saved);
-    await loadSnapshot(filters);
-  };
+  const applySettings = useCallback((nextSettings: AppSettings) => {
+    const previousSettings = settingsRef.current;
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
 
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      await window.codexUsage.refreshUsage();
-      await loadSnapshot(filters);
-      setToast(t('toast.refreshSuccess'));
-    } finally {
-      setLoading(false);
-    }
+    const requestId = settingsSaveRequestId.current + 1;
+    settingsSaveRequestId.current = requestId;
+    void window.codexUsage.saveSettings(nextSettings)
+      .then((saved) => {
+        if (requestId !== settingsSaveRequestId.current) {
+          return;
+        }
+        settingsRef.current = saved;
+        setSettings(saved);
+        if (previousSettings && settingsAffectData(previousSettings, saved)) {
+          scheduleSettingsDataRefresh();
+        }
+      })
+      .catch((error) => {
+        setToast(error instanceof Error ? error.message : String(error));
+      });
+  }, [scheduleSettingsDataRefresh]);
+
+  const refresh = () => {
+    void refreshUsageSnapshot(true);
   };
 
   const exportUsage = async (kind: ExportKind, privacyMode: ExportPrivacyMode) => {
@@ -132,30 +261,46 @@ export function App(): React.ReactElement {
 
   const openProject = (workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);
-    setFilters((current) => ({ ...current, workspaceId }));
     setProjectListExpanded(true);
     setPage('project');
   };
 
+  const openDashboard = () => {
+    setFilters((current) => ({ ...current, workspaceId: ALL_WORKSPACES_ID }));
+    setPage('dashboard');
+  };
+
   return (
     <I18nContext.Provider value={{ language, t }}>
-      <div className="app-shell" data-theme={effectiveTheme}>
+      <div className="app-shell" data-theme={effectiveTheme} style={fontScaleStyle}>
         <aside className="sidebar">
           <div className="brand">
-            <Gauge size={22} />
+            <div className="brand-mark" aria-hidden="true">
+              <Gauge size={18} />
+            </div>
             <div>
               <strong>{t('app.brand')}</strong>
               <span>{appInfo?.version || '1.0.0'}</span>
             </div>
           </div>
           <nav aria-label="Primary">
-            <button className={page === 'dashboard' ? 'active' : ''} onClick={() => setPage('dashboard')}>
+            <button
+              className={page === 'dashboard' ? 'active' : ''}
+              onClick={openDashboard}
+              aria-label={t('nav.dashboard')}
+              title={t('nav.dashboard')}
+            >
               <BarChart3 size={16} />
               <span className="sidebar-nav-label">{t('nav.dashboard')}</span>
             </button>
             <div className="sidebar-nav-group">
               <div className="sidebar-nav-row">
-                <button className={page === 'project' ? 'active sidebar-page-button' : 'sidebar-page-button'} onClick={() => setPage('project')}>
+                <button
+                  className={page === 'project' ? 'active sidebar-page-button' : 'sidebar-page-button'}
+                  onClick={() => setPage('project')}
+                  aria-label={t('nav.projectDetail')}
+                  title={t('nav.projectDetail')}
+                >
                   <Folder size={16} />
                   <span className="sidebar-nav-label">{t('nav.projectDetail')}</span>
                 </button>
@@ -178,6 +323,7 @@ export function App(): React.ReactElement {
                       className={projectWorkspaceId === workspace.id ? 'workspace-nav active' : 'workspace-nav'}
                       onClick={() => openProject(workspace.id)}
                       title={workspace.normalizedPath}
+                      aria-label={`${workspace.displayName}, ${t('dashboard.matchingRuns', { count: workspace.runs })}`}
                     >
                       <Activity size={14} />
                       <span>{workspace.displayName}</span>
@@ -186,11 +332,21 @@ export function App(): React.ReactElement {
                 </div>
               ) : null}
             </div>
-            <button className={page === 'settings' ? 'active' : ''} onClick={() => setPage('settings')}>
+            <button
+              className={page === 'settings' ? 'active' : ''}
+              onClick={() => setPage('settings')}
+              aria-label={t('nav.settings')}
+              title={t('nav.settings')}
+            >
               <SettingsIcon size={16} />
               <span className="sidebar-nav-label">{t('nav.settings')}</span>
             </button>
-            <button className={page === 'diagnostics' ? 'active' : ''} onClick={() => setPage('diagnostics')}>
+            <button
+              className={page === 'diagnostics' ? 'active' : ''}
+              onClick={() => setPage('diagnostics')}
+              aria-label={t('nav.diagnostics')}
+              title={t('nav.diagnostics')}
+            >
               <Stethoscope size={16} />
               <span className="sidebar-nav-label">{t('nav.diagnostics')}</span>
             </button>
@@ -200,14 +356,12 @@ export function App(): React.ReactElement {
         <div className="main-area">
           <header className="top-toolbar">
             <div className="window-title">
-              {page === 'dashboard' && t('nav.dashboard')}
-              {page === 'project' && t('nav.projectDetail')}
-              {page === 'settings' && t('nav.settings')}
-              {page === 'diagnostics' && t('nav.diagnostics')}
+              <Sparkles size={14} aria-hidden="true" />
+              <span>{pageTitle}</span>
             </div>
             <div className="toolbar-meta">
               <span>{settings?.codexDir || t('toolbar.noCodexDirConfigured')}</span>
-              {loading ? <span className="loading-row">{t('toolbar.refreshing')}</span> : null}
+              {isRefreshing ? <span className="loading-row" role="status">{t('toolbar.refreshing')}</span> : null}
             </div>
           </header>
 
@@ -224,7 +378,7 @@ export function App(): React.ReactElement {
             />
           ) : null}
           {page === 'project' ? <ProjectDetail workspaceId={projectWorkspaceId} filters={filters} onFiltersChange={setFilters} /> : null}
-          {page === 'settings' ? <Settings settings={settings} onSave={saveSettings} /> : null}
+          {page === 'settings' ? <Settings settings={settings} onChange={applySettings} /> : null}
           {page === 'diagnostics' ? <Diagnostics /> : null}
         </div>
 

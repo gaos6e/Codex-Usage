@@ -19,6 +19,11 @@ export type ExportKind = 'daily-csv' | 'runs-csv' | 'summary-json' | 'dashboard-
 
 export type ExportPrivacyMode = 'full-paths' | 'anonymized-paths';
 
+export interface FontScaleSettings {
+  ui: number;
+  data: number;
+}
+
 export interface PathAliasRule {
   id: string;
   from: string;
@@ -34,6 +39,7 @@ export interface AppSettings {
   idleGapMinutes: number;
   theme: ThemeMode;
   language: LanguageCode;
+  fontScale: FontScaleSettings;
   aliases: PathAliasRule[];
   ignoredWorkspaces: string[];
 }
@@ -240,7 +246,7 @@ export interface CodexUsageApi {
   getUsageSnapshot: (filters: UsageFilters) => Promise<UsageSnapshot>;
   getProjectDetail: (workspaceId: string, filters: UsageFilters) => Promise<ProjectDetail>;
   getDiagnostics: () => Promise<DiagnosticsSnapshot>;
-  refreshUsage: () => Promise<UsageSnapshot>;
+  refreshUsage: () => Promise<void>;
   exportUsage: (request: ExportRequest) => Promise<ExportResult>;
   getAppInfo: () => Promise<AppInfo>;
 }

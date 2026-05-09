@@ -6,10 +6,11 @@ import { useI18n } from '../i18n/I18nContext';
 interface Props {
   runs: RunRecord[];
   compact?: boolean;
+  hideWorkspace?: boolean;
   scrollable?: boolean;
 }
 
-export function RunsTable({ runs, compact = false, scrollable = false }: Props): React.ReactElement {
+export function RunsTable({ runs, compact = false, hideWorkspace = false, scrollable = false }: Props): React.ReactElement {
   const { t } = useI18n();
   if (!runs.length) {
     return (
@@ -25,14 +26,20 @@ export function RunsTable({ runs, compact = false, scrollable = false }: Props):
       className={[
         'table-shell',
         compact ? 'table-shell--compact' : '',
+        hideWorkspace ? 'table-shell--no-workspace' : '',
         scrollable ? 'table-shell--scrollable' : '',
       ].filter(Boolean).join(' ')}
     >
-      <table className={compact ? 'runs-table runs-table--compact' : 'runs-table'}>
+      <table className={[
+        'runs-table',
+        compact ? 'runs-table--compact' : '',
+        hideWorkspace ? 'runs-table--no-workspace' : '',
+      ].filter(Boolean).join(' ')}
+      >
         <thead>
           <tr>
             <th>{t('runs.column.run')}</th>
-            <th>{t('runs.column.workspace')}</th>
+            {hideWorkspace ? null : <th>{t('runs.column.workspace')}</th>}
             <th>{t('runs.column.started')}</th>
             <th>{t('runs.column.duration')}</th>
             <th>{t('runs.column.model')}</th>
@@ -44,16 +51,16 @@ export function RunsTable({ runs, compact = false, scrollable = false }: Props):
           {runs.map((run) => (
             <tr key={run.id}>
               <td>
-                <div className="table-title">{run.title || t('runs.untitled')}</div>
+                <div className="table-title" title={run.title || t('runs.untitled')}>{run.title || t('runs.untitled')}</div>
                 <div className="table-meta">{run.id}</div>
               </td>
-              <td title={run.workspacePath}>{run.workspaceName}</td>
-              <td>{formatDateTime(run.startTime)}</td>
-              <td>
+              {hideWorkspace ? null : <td className="table-cell-truncate" title={run.workspacePath}>{run.workspaceName}</td>}
+              <td className="table-cell-nowrap">{formatDateTime(run.startTime)}</td>
+              <td className="table-cell-nowrap">
                 {formatDuration(run.durationMs)}
                 <div className="table-meta">{run.durationMethod === 'jsonl-events' ? t('runs.duration.jsonl') : t('runs.duration.thread')}</div>
               </td>
-              <td>{run.model}</td>
+              <td className="table-cell-truncate" title={run.model}>{run.model}</td>
               <td className="numeric">{formatTokens(run.totalTokens)}</td>
               <td>{run.archived ? <span className="badge">{t('runs.status.archived')}</span> : <span className="badge badge--ok">{t('runs.status.active')}</span>}</td>
             </tr>

@@ -113,7 +113,7 @@ export function ProjectDetail({ workspaceId, filters, onFiltersChange }: Props):
           </div>
           <div className="inspector-section">
             <h3>{t('project.recentSessions')}</h3>
-            <RunsTable runs={detail.recentSessions.slice(0, 5)} compact />
+            <RunsTable runs={detail.recentSessions.slice(0, 5)} compact hideWorkspace />
           </div>
         </aside>
       </section>

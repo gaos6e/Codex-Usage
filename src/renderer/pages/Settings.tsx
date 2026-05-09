@@ -1,16 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { FolderOpen, Plus, Save, Trash2 } from 'lucide-react';
+import { FolderOpen, Plus, Trash2 } from 'lucide-react';
 import type { AppSettings } from '../../shared/contracts';
 import { useI18n } from '../i18n/I18nContext';
 
 interface Props {
   settings: AppSettings | null;
-  onSave: (settings: AppSettings) => Promise<void>;
+  onChange: (settings: AppSettings) => void;
 }
 
-export function Settings({ settings, onSave }: Props): React.ReactElement {
+export function Settings({ settings, onChange }: Props): React.ReactElement {
   const [draft, setDraft] = useState<AppSettings | null>(settings);
-  const [status, setStatus] = useState('');
   const { t } = useI18n();
 
   useEffect(() => setDraft(settings), [settings]);
@@ -19,11 +18,10 @@ export function Settings({ settings, onSave }: Props): React.ReactElement {
     return <main className="content-pane"><div className="loading-row">{t('settings.title')}…</div></main>;
   }
 
-  const update = (patch: Partial<AppSettings>) => setDraft({ ...draft, ...patch });
-
-  const save = async () => {
-    await onSave(draft);
-    setStatus(t('settings.saved'));
+  const update = (patch: Partial<AppSettings>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    onChange(next);
   };
 
   const chooseDirectory = async () => {
@@ -40,10 +38,7 @@ export function Settings({ settings, onSave }: Props): React.ReactElement {
           <h1>{t('settings.title')}</h1>
           <p>{t('settings.subtitle')}</p>
         </div>
-        <button className="primary-button" onClick={save}><Save size={15} /> {t('settings.save')}</button>
       </div>
-
-      {status ? <div className="success-banner" role="status">{status}</div> : null}
 
       <section className="settings-group">
         <h2>{t('settings.dataSources')}</h2>
@@ -91,6 +86,44 @@ export function Settings({ settings, onSave }: Props): React.ReactElement {
               <option value="zh-CN">{t('settings.languageZhCN')}</option>
               <option value="en">{t('settings.languageEn')}</option>
             </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="settings-group">
+        <h2>{t('settings.fontSize')}</h2>
+        <div className="settings-grid settings-grid--two">
+          <label>
+            <span className="range-label">
+              {t('settings.uiFontScale')}
+              <strong>{Math.round(draft.fontScale.ui * 100)}%</strong>
+            </span>
+            <input
+              type="range"
+              min={90}
+              max={125}
+              step={1}
+              value={Math.round(draft.fontScale.ui * 100)}
+              onChange={(event) => update({
+                fontScale: { ...draft.fontScale, ui: Number(event.target.value) / 100 },
+              })}
+            />
+          </label>
+          <label>
+            <span className="range-label">
+              {t('settings.dataFontScale')}
+              <strong>{Math.round(draft.fontScale.data * 100)}%</strong>
+            </span>
+            <input
+              type="range"
+              min={90}
+              max={125}
+              step={1}
+              value={Math.round(draft.fontScale.data * 100)}
+              onChange={(event) => update({
+                fontScale: { ...draft.fontScale, data: Number(event.target.value) / 100 },
+              })}
+            />
           </label>
         </div>
       </section>
