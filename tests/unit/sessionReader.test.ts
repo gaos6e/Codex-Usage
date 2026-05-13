@@ -112,4 +112,44 @@ describe('sessionReader token breakdown', () => {
       cacheHitRate: 0.6,
     });
   });
+
+  it('reuses cached session timing when file size and mtime are unchanged', async () => {
+    const root = createTempDir();
+    const sessionsDir = path.join(root, 'sessions');
+    const archivedDir = path.join(root, 'archived_sessions');
+    const cachePath = path.join(root, 'session-cache.json');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.mkdirSync(archivedDir, { recursive: true });
+
+    const filePath = path.join(sessionsDir, 'rollout-cache.jsonl');
+    fs.writeFileSync(
+      filePath,
+      [
+        JSON.stringify({
+          timestamp: '2026-04-23T01:00:00.000Z',
+          type: 'session_meta',
+          payload: { id: 'thread-cache', cwd: 'C:\\base', model: 'gpt-5.4' },
+        }),
+        JSON.stringify({
+          timestamp: '2026-04-23T01:00:10.000Z',
+          type: 'event_msg',
+          payload: { started_at: '2026-04-23T01:00:10.000Z' },
+        }),
+      ].join('\n'),
+      'utf8',
+    );
+    const fixedTime = new Date('2026-04-23T01:01:00.000Z');
+    fs.utimesSync(filePath, fixedTime, fixedTime);
+
+    const first = await readSessions(sessionsDir, archivedDir, true, 30, { cachePath });
+    expect(first.sessionsById.get('thread-cache')?.activeMs).toBe(10000);
+
+    const originalSize = fs.statSync(filePath).size;
+    fs.writeFileSync(filePath, 'x'.repeat(originalSize), 'utf8');
+    fs.utimesSync(filePath, fixedTime, fixedTime);
+
+    const second = await readSessions(sessionsDir, archivedDir, true, 30, { cachePath });
+    expect(second.sessionsById.get('thread-cache')?.activeMs).toBe(10000);
+    expect(second.warnings).toEqual([]);
+  });
 });

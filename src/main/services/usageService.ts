@@ -28,6 +28,7 @@ import type { AppPaths } from './appPaths';
 import { detectSources, SourceDetection } from './sourceDetector';
 import { readLogsDb } from './logsReader';
 import { readSessions, SessionReadResult } from './sessionReader';
+import { SingleFlight } from './singleFlight';
 import { readStateDb, ThreadRecord } from './stateDbReader';
 
 interface UsageData {
@@ -74,9 +75,38 @@ function hasBreakdownValues(breakdown: TokenBreakdown | undefined): boolean {
   );
 }
 
+function sumOptional(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined && b === undefined) {
+    return undefined;
+  }
+  return (a || 0) + (b || 0);
+}
+
+function tokenBreakdownDetailItems(breakdown: TokenBreakdown, divisor = 1): MetricCard['detailItems'] {
+  const formatBreakdownValue = (value: number | undefined) => {
+    if (value === undefined) {
+      return { valueKey: 'metric.unavailable' };
+    }
+    return { value: formatTokens(value / Math.max(1, divisor)) };
+  };
+
+  return [
+    { labelKey: 'metric.inputTokens', ...formatBreakdownValue(breakdown.input) },
+    { labelKey: 'metric.outputTokens', ...formatBreakdownValue(breakdown.output) },
+  ];
+}
+
+function tokenCacheDetailItems(breakdown: TokenBreakdown): MetricCard['detailItems'] {
+  return [
+    { labelKey: 'metric.cachedTokens', value: formatTokens(breakdown.cached || 0) },
+    { labelKey: 'metric.inputTokens', value: formatTokens(breakdown.input || 0) },
+  ];
+}
+
 export class UsageService {
   private currentData: UsageData | null = null;
   private currentSettings: AppSettings | null = null;
+  private readonly refreshGate = new SingleFlight();
 
   constructor(
     private readonly paths: AppPaths,
@@ -84,6 +114,10 @@ export class UsageService {
   ) {}
 
   async refresh(force = false): Promise<UsageData> {
+    return this.refreshGate.run('usage-refresh', () => this.refreshInternal(force));
+  }
+
+  private async refreshInternal(force = false): Promise<UsageData> {
     const settings = this.getSettings();
     const started = Date.now();
     const detection = detectSources(settings);
@@ -104,8 +138,9 @@ export class UsageService {
       detection.archivedSessionsDir,
       settings.includeArchivedSessions,
       settings.idleGapMinutes,
+      { cachePath: path.join(this.paths.cacheDir, 'session-cache.json') },
     );
-    const logs = readLogsDb(detection.logsDbPath, settings.includeDetailedLogs);
+    const logs = await readLogsDb(detection.logsDbPath, settings.includeDetailedLogs);
 
     const warnings: DiagnosticWarning[] = [
       ...detection.warnings,
@@ -230,26 +265,24 @@ export class UsageService {
       all: resolveTimeRange({ preset: 'all' }, data.allTimeStart, data.allTimeEnd),
     };
 
-    const sumFor = (targetRange: ResolvedRange) =>
-      this.filterRuns(data.runs, filters.workspaceId, targetRange).reduce((acc, run) => {
+    const runsFor = (targetRange: ResolvedRange) => this.filterRuns(data.runs, filters.workspaceId, targetRange);
+    const summarizeRuns = (runs: RunRecord[]) =>
+      runs.reduce((acc, run) => {
         acc.tokens += run.totalTokens;
         acc.agentTimeMs += run.durationMs;
         acc.runs += 1;
         return acc;
       }, { tokens: 0, agentTimeMs: 0, runs: 0 });
 
-    const selected = scopedRuns.reduce((acc, run) => {
-      acc.tokens += run.totalTokens;
-      acc.agentTimeMs += run.durationMs;
-      acc.runs += 1;
-      return acc;
-    }, { tokens: 0, agentTimeMs: 0, runs: 0 });
-    const today = sumFor(fixedRanges.today);
-    const last7 = sumFor(fixedRanges.last7);
-    const last30 = sumFor(fixedRanges.last30);
-    const last90 = sumFor(fixedRanges.last90);
-    const all = sumFor(fixedRanges.all);
+    const selected = summarizeRuns(scopedRuns);
+    const today = summarizeRuns(runsFor(fixedRanges.today));
+    const last7 = summarizeRuns(runsFor(fixedRanges.last7));
+    const last30 = summarizeRuns(runsFor(fixedRanges.last30));
+    const last90 = summarizeRuns(runsFor(fixedRanges.last90));
+    const allRuns = runsFor(fixedRanges.all);
+    const all = summarizeRuns(allRuns);
     const calendarDays = calendarDaysInRange(range);
+    const allCalendarDays = calendarDaysInRange(fixedRanges.all);
     const activeDays = new Set(scopedRuns.map((run) => localDateKey(new Date(run.startTime)))).size;
     const peakByTime = [...daily].sort((a, b) => b.agentTimeMs - a.agentTimeMs)[0];
     const peakByTokens = [...daily].sort((a, b) => b.tokens - a.tokens)[0];
@@ -261,6 +294,7 @@ export class UsageService {
     const averageTokensPerRun = scopedRuns.length ? selected.tokens / scopedRuns.length : 0;
     const averageTokensPerDay = averagePerDay(selected.tokens, calendarDays);
     const breakdown = this.sumBreakdown(scopedRuns);
+    const allBreakdown = this.sumBreakdown(allRuns);
     const cacheHitRate = cacheHitRateForBreakdown(breakdown);
     const selectedRangeDescriptor = filters.range.preset === 'custom'
       ? {
@@ -270,29 +304,52 @@ export class UsageService {
 
     const timeCards: MetricCard[] = [
       { id: 'selected-time', labelKey: 'metric.agentTime', value: formatDuration(selected.agentTimeMs), ...selectedRangeDescriptor, tone: 'blue' },
-      { id: 'runs', labelKey: 'metric.runs', value: formatInteger(selected.runs), ...selectedRangeDescriptor },
       { id: 'avg-day-time', labelKey: 'metric.avgTimePerDay', value: formatDuration(averageTimePerDayMs), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
       { id: 'active-days', labelKey: 'metric.activeDays', value: formatInteger(activeDays), sublabelKey: 'metric.longestStreakDays', sublabelArgs: { count: longestStreakDays } },
-      { id: 'all-time', labelKey: 'metric.allTime', value: formatDuration(all.agentTimeMs) },
+      { id: 'runs', labelKey: 'metric.runs', value: formatInteger(selected.runs), ...selectedRangeDescriptor },
+      { id: 'all-time', labelKey: 'metric.allTime', value: formatDuration(all.agentTimeMs), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: allCalendarDays } },
     ];
     const tokenCards: MetricCard[] = [
-      { id: 'selected-tokens', labelKey: 'metric.tokens', value: formatTokens(selected.tokens), ...selectedRangeDescriptor, tone: 'blue' },
-      { id: 'avg-day-tokens', labelKey: 'metric.avgTokensPerDay', value: formatTokens(averageTokensPerDay), sublabelKey: 'metric.calendarDays', sublabelArgs: { count: calendarDays } },
+      {
+        id: 'selected-tokens',
+        labelKey: 'metric.tokens',
+        value: formatTokens(selected.tokens),
+        ...selectedRangeDescriptor,
+        detailItems: tokenBreakdownDetailItems(breakdown),
+        tone: 'blue',
+      },
+      {
+        id: 'avg-day-tokens',
+        labelKey: 'metric.avgTokensPerDay',
+        value: formatTokens(averageTokensPerDay),
+        sublabelKey: 'metric.calendarDays',
+        sublabelArgs: { count: calendarDays },
+        detailItems: tokenBreakdownDetailItems(breakdown, calendarDays),
+      },
+      {
+        id: 'all-tokens',
+        labelKey: 'metric.allTime',
+        value: formatTokens(all.tokens),
+        sublabelKey: 'metric.calendarDays',
+        sublabelArgs: { count: allCalendarDays },
+        detailItems: tokenBreakdownDetailItems(allBreakdown),
+      },
+      {
+        id: 'avg-tokens',
+        labelKey: 'metric.avgTokensPerRun',
+        value: formatTokens(averageTokensPerRun),
+        ...selectedRangeDescriptor,
+        detailItems: tokenBreakdownDetailItems(breakdown, selected.runs),
+      },
       cacheHitRate !== undefined
         ? {
             id: 'token-cache-hit-rate',
             labelKey: 'metric.tokenCacheHitRate',
             value: formatPercent(cacheHitRate),
-            sublabelKey: 'metric.currentRangeCachedInputTokens',
-            sublabelArgs: {
-              cached: formatTokens(breakdown.cached || 0),
-              input: formatTokens(breakdown.input || 0),
-            },
+            detailItems: tokenCacheDetailItems(breakdown),
             tone: 'success',
           }
         : { id: 'token-cache-hit-rate', labelKey: 'metric.tokenCacheHitRate', valueKey: 'metric.unavailable', tone: 'warning' },
-      { id: 'avg-tokens', labelKey: 'metric.avgTokensPerRun', value: formatTokens(averageTokensPerRun), ...selectedRangeDescriptor },
-      { id: 'all-tokens', labelKey: 'metric.allTime', value: formatTokens(all.tokens) },
     ];
 
     return {
@@ -509,10 +566,10 @@ export class UsageService {
 
   private mergeBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
     const merged: TokenBreakdown = {
-      input: (a.input || 0) + (b.input || 0),
-      output: (a.output || 0) + (b.output || 0),
-      cached: (a.cached || 0) + (b.cached || 0),
-      reasoning: (a.reasoning || 0) + (b.reasoning || 0),
+      input: sumOptional(a.input, b.input),
+      output: sumOptional(a.output, b.output),
+      cached: sumOptional(a.cached, b.cached),
+      reasoning: sumOptional(a.reasoning, b.reasoning),
       unavailableReason: b.unavailableReason || a.unavailableReason,
     };
     merged.cacheHitRate = cacheHitRateForBreakdown(merged);

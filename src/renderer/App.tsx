@@ -174,11 +174,11 @@ export function App(): React.ReactElement {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const [loadedSettings, info, cachedSnapshot] = await Promise.all([
+        const [loadedSettings, info] = await Promise.all([
           window.codexUsage.getSettings(),
           window.codexUsage.getAppInfo(),
-          window.codexUsage.getCachedUsageSnapshot(initialFilters),
         ]);
         if (cancelled) {
           return;
@@ -186,14 +186,37 @@ export function App(): React.ReactElement {
         setSettings(loadedSettings);
         settingsRef.current = loadedSettings;
         setAppInfo(info);
-        if (cachedSnapshot) {
-          snapshotRef.current = cachedSnapshot;
-          setSnapshot(cachedSnapshot);
+        await waitForRenderCycle();
+        await window.codexUsage.refreshUsage();
+        if (cancelled) {
+          return;
         }
+        const refreshedSnapshot = await window.codexUsage.getUsageSnapshot(initialFilters);
+        if (cancelled) {
+          return;
+        }
+        snapshotRef.current = refreshedSnapshot;
+        setSnapshot(refreshedSnapshot);
         setBootstrapped(true);
       } catch (error) {
         if (!cancelled) {
           setToast(error instanceof Error ? error.message : String(error));
+          try {
+            const cachedSnapshot = await window.codexUsage.getCachedUsageSnapshot(initialFilters);
+            if (!cancelled && cachedSnapshot) {
+              snapshotRef.current = cachedSnapshot;
+              setSnapshot(cachedSnapshot);
+            }
+          } catch {
+            // The original startup error is the useful one to show.
+          }
+          if (!cancelled) {
+            setBootstrapped(true);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
     })();
@@ -371,6 +394,7 @@ export function App(): React.ReactElement {
               filters={filters}
               settings={settings}
               loading={loading}
+              refreshing={refreshing}
               onFiltersChange={setFilters}
               onRefresh={refresh}
               onExport={exportUsage}

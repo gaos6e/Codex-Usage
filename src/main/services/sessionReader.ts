@@ -25,6 +25,39 @@ export interface SessionReadResult {
   filesRead: number;
 }
 
+export interface SessionReadOptions {
+  cachePath?: string;
+}
+
+interface CachedSessionTiming {
+  id: string;
+  filePath: string;
+  archived: boolean;
+  cwd?: string;
+  model?: string;
+  start?: string;
+  end?: string;
+  activeMs?: number;
+  tokenBreakdown?: TokenBreakdown;
+  parseWarnings: number;
+}
+
+interface CachedSessionEntry {
+  filePath: string;
+  archived: boolean;
+  size: number;
+  mtimeMs: number;
+  idleCapMinutes: number;
+  session: CachedSessionTiming;
+}
+
+interface SessionCacheEnvelope {
+  version: number;
+  entries: CachedSessionEntry[];
+}
+
+const SESSION_CACHE_VERSION = 1;
+
 function parseTimestamp(value: unknown): Date | null {
   if (typeof value !== 'string') {
     return null;
@@ -89,6 +122,69 @@ export function extractTokenBreakdownFromInfo(info: unknown): TokenBreakdown | u
     return breakdownTotalScore(totalBreakdown) >= breakdownTotalScore(lastBreakdown) ? totalBreakdown : lastBreakdown;
   }
   return totalBreakdown || lastBreakdown;
+}
+
+function readFileStat(filePath: string): { size: number; mtimeMs: number } | null {
+  try {
+    const stat = fs.statSync(filePath);
+    return { size: stat.size, mtimeMs: stat.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function serializeSession(session: SessionTiming): CachedSessionTiming {
+  return {
+    ...session,
+    start: session.start?.toISOString(),
+    end: session.end?.toISOString(),
+  };
+}
+
+function reviveSession(session: CachedSessionTiming): SessionTiming {
+  return {
+    ...session,
+    start: session.start ? new Date(session.start) : undefined,
+    end: session.end ? new Date(session.end) : undefined,
+  };
+}
+
+function loadSessionCache(cachePath: string | undefined): Map<string, CachedSessionEntry> {
+  const cache = new Map<string, CachedSessionEntry>();
+  if (!cachePath || !fs.existsSync(cachePath)) {
+    return cache;
+  }
+
+  try {
+    const envelope = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as SessionCacheEnvelope;
+    if (envelope.version !== SESSION_CACHE_VERSION || !Array.isArray(envelope.entries)) {
+      return cache;
+    }
+    for (const entry of envelope.entries) {
+      if (entry?.filePath && entry.session) {
+        cache.set(entry.filePath, entry);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return cache;
+}
+
+function saveSessionCache(cachePath: string | undefined, entries: CachedSessionEntry[]): void {
+  if (!cachePath) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    const tempPath = `${cachePath}.${process.pid}.tmp`;
+    const envelope: SessionCacheEnvelope = { version: SESSION_CACHE_VERSION, entries };
+    fs.writeFileSync(tempPath, JSON.stringify(envelope), 'utf8');
+    fs.renameSync(tempPath, cachePath);
+  } catch {
+    // Cache failures should not block reading live session files.
+  }
 }
 
 async function readSessionFile(filePath: string, archived: boolean, idleCapMs: number): Promise<SessionTiming> {
@@ -158,12 +254,15 @@ export async function readSessions(
   archivedSessionsDir: string,
   includeArchived: boolean,
   idleCapMinutes: number,
+  options: SessionReadOptions = {},
 ): Promise<SessionReadResult> {
   const idleCapMs = idleCapMinutes * 60 * 1000;
   const files = [
     ...listJsonlFiles(sessionsDir).map((filePath) => ({ filePath, archived: false })),
     ...(includeArchived ? listJsonlFiles(archivedSessionsDir).map((filePath) => ({ filePath, archived: true })) : []),
   ];
+  const cache = loadSessionCache(options.cachePath);
+  const nextCacheEntries: CachedSessionEntry[] = [];
 
   const sessionsById = new Map<string, SessionTiming>();
   const sessionsByFileStem = new Map<string, SessionTiming>();
@@ -171,7 +270,25 @@ export async function readSessions(
 
   for (const file of files) {
     try {
-      const session = await readSessionFile(file.filePath, file.archived, idleCapMs);
+      const stat = readFileStat(file.filePath);
+      const cached = stat ? cache.get(file.filePath) : undefined;
+      const session = cached
+        && cached.archived === file.archived
+        && cached.size === stat?.size
+        && cached.mtimeMs === stat.mtimeMs
+        && cached.idleCapMinutes === idleCapMinutes
+        ? reviveSession(cached.session)
+        : await readSessionFile(file.filePath, file.archived, idleCapMs);
+      if (stat) {
+        nextCacheEntries.push({
+          filePath: file.filePath,
+          archived: file.archived,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          idleCapMinutes,
+          session: serializeSession(session),
+        });
+      }
       const existing = sessionsById.get(session.id);
       if (!existing || (!existing.archived && session.archived)) {
         sessionsById.set(session.id, session);
@@ -196,6 +313,8 @@ export async function readSessions(
       });
     }
   }
+
+  saveSessionCache(options.cachePath, nextCacheEntries);
 
   return { sessionsById, sessionsByFileStem, warnings, filesRead: files.length };
 }

@@ -14,6 +14,7 @@ interface Props {
   filters: UsageFilters;
   settings: AppSettings | null;
   loading: boolean;
+  refreshing: boolean;
   onFiltersChange: (filters: UsageFilters) => void;
   onRefresh: () => void;
   onExport: (kind: ExportKind, privacyMode: ExportPrivacyMode) => void;
@@ -25,12 +26,13 @@ function formatWorkspaceRunCount(count: number): string {
   return rounded > 9999 ? '9999+' : String(rounded);
 }
 
-export function Dashboard({ snapshot, filters, settings, loading, onFiltersChange, onRefresh, onExport, onOpenProject }: Props): React.ReactElement {
+export function Dashboard({ snapshot, filters, settings, loading, refreshing, onFiltersChange, onRefresh, onExport, onOpenProject }: Props): React.ReactElement {
   const warnings = snapshot?.diagnostics.warnings.filter((warning) => warning.severity !== 'info') || [];
   const [exportPrivacyMode, setExportPrivacyMode] = React.useState<ExportPrivacyMode>('anonymized-paths');
   const { t } = useI18n();
+  const refreshDisabled = loading || refreshing;
   return (
-    <main className="content-pane" aria-busy={loading}>
+    <main className="content-pane" aria-busy={refreshDisabled}>
       <div className="content-header">
         <div>
           <h1>{t('dashboard.title')}</h1>
@@ -40,7 +42,7 @@ export function Dashboard({ snapshot, filters, settings, loading, onFiltersChang
           <span className="status-text">
             {snapshot ? t('dashboard.updated', { time: formatDateTime(snapshot.generatedAt) }) : t('dashboard.updatedNever')}
           </span>
-          <button className="icon-button refresh-button" onClick={onRefresh} title={t('toolbar.refresh')} aria-label={t('toolbar.refresh')}>
+          <button className="icon-button refresh-button" onClick={onRefresh} title={t('toolbar.refresh')} aria-label={t('toolbar.refresh')} disabled={refreshDisabled}>
             <RefreshCw size={17} />
           </button>
         </div>

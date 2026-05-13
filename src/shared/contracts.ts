@@ -164,6 +164,11 @@ export interface MetricCard {
   sublabelKey?: string;
   sublabel?: string;
   sublabelArgs?: Record<string, string | number | boolean | null | undefined>;
+  detailItems?: Array<{
+    labelKey: string;
+    value?: string;
+    valueKey?: string;
+  }>;
   tone?: 'default' | 'blue' | 'warning' | 'success';
 }
 

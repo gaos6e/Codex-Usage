@@ -10,6 +10,14 @@ export interface LogsReadResult {
   columns: string[];
 }
 
+const LOG_READ_BATCH_SIZE = 5000;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 function addBreakdown(target: TokenBreakdown, source: TokenBreakdown): void {
   target.input = (target.input || 0) + (source.input || 0);
   target.output = (target.output || 0) + (source.output || 0);
@@ -147,7 +155,7 @@ export function extractBreakdownFromText(body: string): TokenBreakdown {
   return result;
 }
 
-export function readLogsDb(dbPath: string, enabled: boolean): LogsReadResult {
+export async function readLogsDb(dbPath: string, enabled: boolean): Promise<LogsReadResult> {
   const warnings: DiagnosticWarning[] = [];
   if (!enabled) {
     return {
@@ -195,7 +203,7 @@ export function readLogsDb(dbPath: string, enabled: boolean): LogsReadResult {
       };
     }
 
-    const columns = db.prepare('pragma table_info(logs)').all().map((row: any) => String(row.name));
+    const columns = (db.prepare('pragma table_info(logs)').all() as Array<{ name: string }>).map((row) => String(row.name));
     const rows = db.prepare('select count(*) as count from logs').get() as { count: number };
     const byThreadId = new Map<string, TokenBreakdown>();
 
@@ -210,18 +218,38 @@ export function readLogsDb(dbPath: string, enabled: boolean): LogsReadResult {
       return { byThreadId, warnings, rows: rows.count, columns };
     }
 
-    const records = db.prepare(
-      'select thread_id, feedback_log_body from logs where thread_id is not null and feedback_log_body is not null',
-    ).all() as Array<{ thread_id: string; feedback_log_body: string }>;
+    const selectBatch = db.prepare(
+      `select rowid as rowid, thread_id, feedback_log_body
+       from logs
+       where rowid > ?
+         and thread_id is not null
+         and feedback_log_body is not null
+       order by rowid
+       limit ?`,
+    );
 
     let parsed = 0;
-    for (const record of records) {
-      const breakdown = extractBreakdownFromText(String(record.feedback_log_body || ''));
-      if (breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
-        parsed += 1;
-        const current = byThreadId.get(String(record.thread_id)) || {};
-        addBreakdown(current, breakdown);
-        byThreadId.set(String(record.thread_id), current);
+    let lastRowid = 0;
+    let hasMoreRows = true;
+    while (hasMoreRows) {
+      const records = selectBatch.all(lastRowid, LOG_READ_BATCH_SIZE) as Array<{ rowid: number; thread_id: string; feedback_log_body: string }>;
+      if (!records.length) {
+        hasMoreRows = false;
+        continue;
+      }
+      for (const record of records) {
+        lastRowid = Number(record.rowid || lastRowid);
+        const breakdown = extractBreakdownFromText(String(record.feedback_log_body || ''));
+        if (breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
+          parsed += 1;
+          const current = byThreadId.get(String(record.thread_id)) || {};
+          addBreakdown(current, breakdown);
+          byThreadId.set(String(record.thread_id), current);
+        }
+      }
+      hasMoreRows = records.length === LOG_READ_BATCH_SIZE;
+      if (hasMoreRows) {
+        await yieldToEventLoop();
       }
     }
 

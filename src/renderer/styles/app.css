@@ -1,6 +1,6 @@
 :root {
   color-scheme: light dark;
-  font-family: "Segoe UI Variable", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  font-family: "Microsoft YaHei UI", "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
   font-size: 15px;
   letter-spacing: 0;
   background: #f4f5f7;
@@ -440,7 +440,7 @@ p {
 }
 
 h1 {
-  font-family: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI Variable", sans-serif;
+  font-family: "Microsoft YaHei UI", "Segoe UI Variable Display", "Segoe UI", sans-serif;
   font-size: 2em;
   font-weight: 720;
   line-height: 1.12;
@@ -723,6 +723,15 @@ label select {
   color: var(--text-primary);
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
 .icon-button {
   width: 36px;
   padding: 0;
@@ -736,7 +745,7 @@ label select {
   transition: transform var(--speed) var(--ease);
 }
 
-.refresh-button:hover svg {
+.refresh-button:hover:not(:disabled) svg {
   transform: rotate(24deg);
 }
 
@@ -749,7 +758,7 @@ label select {
 
 .metric-card {
   position: relative;
-  min-height: 112px;
+  min-height: 140px;
   padding: 16px;
   overflow: hidden;
   border: 1px solid var(--divider);
@@ -796,7 +805,7 @@ label select {
 
 .metric-card__value {
   margin-top: 9px;
-  font-family: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI Variable", sans-serif;
+  font-family: "Microsoft YaHei UI", "Segoe UI Variable Display", "Segoe UI", sans-serif;
   font-size: calc(30px * var(--data-font-scale));
   font-weight: 760;
   line-height: 1.05;
@@ -808,6 +817,28 @@ label select {
   color: var(--text-tertiary);
   font-size: 0.86em;
   line-height: 1.35;
+}
+
+.metric-card__details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: 0.82em;
+  line-height: 1.35;
+}
+
+.metric-card__details span {
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metric-card__details strong {
+  color: var(--text-secondary);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace-layout {
@@ -862,7 +893,7 @@ label select {
 }
 
 .recharts-cartesian-axis-tick-value {
-  font-family: "Segoe UI Variable", "SF Pro Text", sans-serif;
+  font-family: "Microsoft YaHei UI", "Segoe UI Variable", "Segoe UI", sans-serif;
 }
 
 .chart-tooltip {

@@ -12,6 +12,16 @@ export function MetricCard({ card }: { card: MetricCardType }): React.ReactEleme
       {card.sublabel || card.sublabelKey ? (
         <div className="metric-card__sublabel">{card.sublabelKey ? t(card.sublabelKey, card.sublabelArgs) : card.sublabel}</div>
       ) : null}
+      {card.detailItems?.length ? (
+        <div className="metric-card__details">
+          {card.detailItems.map((item) => (
+            <span key={item.labelKey}>
+              <span>{t(item.labelKey)}</span>
+              <strong>{item.valueKey ? t(item.valueKey) : item.value}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
