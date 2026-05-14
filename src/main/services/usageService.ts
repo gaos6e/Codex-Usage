@@ -47,7 +47,7 @@ interface CacheEnvelope {
   data: UsageData;
 }
 
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 
 function reviveDate(value: unknown): Date | undefined {
   if (!value) {
@@ -71,6 +71,7 @@ function hasBreakdownValues(breakdown: TokenBreakdown | undefined): boolean {
       || breakdown.output !== undefined
       || breakdown.cached !== undefined
       || breakdown.reasoning !== undefined
+      || breakdown.total !== undefined
     ),
   );
 }
@@ -80,6 +81,19 @@ function sumOptional(a: number | undefined, b: number | undefined): number | und
     return undefined;
   }
   return (a || 0) + (b || 0);
+}
+
+function totalTokensForRun(fallback: number, breakdown?: TokenBreakdown): number {
+  if (!hasBreakdownValues(breakdown)) {
+    return fallback;
+  }
+  if (breakdown?.total !== undefined) {
+    return breakdown.total;
+  }
+  if (breakdown?.input !== undefined || breakdown?.output !== undefined) {
+    return (breakdown.input || 0) + (breakdown.output || 0);
+  }
+  return fallback;
 }
 
 function tokenBreakdownDetailItems(breakdown: TokenBreakdown, divisor = 1): MetricCard['detailItems'] {
@@ -418,6 +432,7 @@ export class UsageService {
         const jsonlBreakdown = timing?.tokenBreakdown;
         const logBreakdown = logBreakdowns.get(thread.id);
         const breakdown = this.resolveRunBreakdown(jsonlBreakdown, logBreakdown);
+        const totalTokens = totalTokensForRun(thread.tokensUsed, breakdown);
         return {
           id: thread.id,
           title: thread.title,
@@ -430,7 +445,7 @@ export class UsageService {
           durationMethod,
           model: thread.model,
           modelProvider: thread.modelProvider,
-          totalTokens: thread.tokensUsed,
+          totalTokens,
           tokenBreakdown: breakdown || { unavailableReason: 'Breakdown unavailable for this run.' },
           rolloutPath: thread.rolloutPath,
           archived: thread.archived,
@@ -566,6 +581,7 @@ export class UsageService {
 
   private mergeBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
     const merged: TokenBreakdown = {
+      total: sumOptional(a.total, b.total),
       input: sumOptional(a.input, b.input),
       output: sumOptional(a.output, b.output),
       cached: sumOptional(a.cached, b.cached),
@@ -581,6 +597,7 @@ export class UsageService {
       return undefined;
     }
     const resolved: TokenBreakdown = {
+      total: primary?.total ?? fallback?.total,
       input: primary?.input ?? fallback?.input,
       output: primary?.output ?? fallback?.output,
       cached: primary?.cached ?? fallback?.cached,
@@ -617,7 +634,7 @@ export class UsageService {
       statPart(detection.sessionsDir),
       statPart(detection.archivedSessionsDir),
       JSON.stringify({
-        tokenBreakdownParserVersion: 3,
+        tokenBreakdownParserVersion: 4,
         codexDir: settings.codexDir,
         includeArchivedSessions: settings.includeArchivedSessions,
         includeDetailedLogs: settings.includeDetailedLogs,

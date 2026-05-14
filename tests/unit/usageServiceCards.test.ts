@@ -72,7 +72,7 @@ function createServiceWithCache(runs: RunRecord[]): UsageService {
   };
 
   fs.writeFileSync(cachePath, JSON.stringify({
-    version: 3,
+    version: 4,
     fingerprint: 'test',
     data: {
       generatedAt: diagnostics.generatedAt,

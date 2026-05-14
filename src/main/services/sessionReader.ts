@@ -56,7 +56,7 @@ interface SessionCacheEnvelope {
   entries: CachedSessionEntry[];
 }
 
-const SESSION_CACHE_VERSION = 1;
+const SESSION_CACHE_VERSION = 2;
 
 function parseTimestamp(value: unknown): Date | null {
   if (typeof value !== 'string') {
@@ -87,7 +87,7 @@ function numberField(value: unknown, key: string): number | undefined {
 }
 
 function breakdownTotalScore(breakdown: TokenBreakdown): number {
-  return (breakdown.input || 0) + (breakdown.output || 0);
+  return breakdown.total ?? (breakdown.input || 0) + (breakdown.output || 0);
 }
 
 export function extractTokenBreakdownFromInfo(info: unknown): TokenBreakdown | undefined {
@@ -104,12 +104,13 @@ export function extractTokenBreakdownFromInfo(info: unknown): TokenBreakdown | u
       return undefined;
     }
     const breakdown: TokenBreakdown = {
+      total: numberField(value, 'total_tokens'),
       input: numberField(value, 'input_tokens'),
       cached: numberField(value, 'cached_input_tokens'),
       output: numberField(value, 'output_tokens'),
       reasoning: numberField(value, 'reasoning_output_tokens'),
     };
-    if (!breakdown.input && !breakdown.cached && !breakdown.output && !breakdown.reasoning) {
+    if (!breakdown.total && !breakdown.input && !breakdown.cached && !breakdown.output && !breakdown.reasoning) {
       return undefined;
     }
     breakdown.cacheHitRate = cacheHitRateForBreakdown(breakdown);

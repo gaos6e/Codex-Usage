@@ -19,6 +19,9 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 function addBreakdown(target: TokenBreakdown, source: TokenBreakdown): void {
+  if (source.total !== undefined || target.total !== undefined) {
+    target.total = (target.total || 0) + (source.total || 0);
+  }
   target.input = (target.input || 0) + (source.input || 0);
   target.output = (target.output || 0) + (source.output || 0);
   target.cached = (target.cached || 0) + (source.cached || 0);
@@ -32,6 +35,7 @@ function extractTokenFields(value: unknown, result: TokenBreakdown = {}): TokenB
   for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
     const normalized = key.toLowerCase();
     if (typeof nested === 'number') {
+      if (normalized.includes('total') && normalized.includes('token')) result.total = (result.total || 0) + nested;
       if (normalized.includes('input') && normalized.includes('token')) result.input = (result.input || 0) + nested;
       if (normalized.includes('output') && normalized.includes('token')) result.output = (result.output || 0) + nested;
       if (normalized.includes('cached') && normalized.includes('token')) result.cached = (result.cached || 0) + nested;
@@ -49,7 +53,7 @@ function extractTokenFields(value: unknown, result: TokenBreakdown = {}): TokenB
   return result;
 }
 
-type NumericBreakdownKey = 'input' | 'output' | 'cached' | 'reasoning';
+type NumericBreakdownKey = 'total' | 'input' | 'output' | 'cached' | 'reasoning';
 
 function addTokenValue(result: TokenBreakdown, key: NumericBreakdownKey, value: number): void {
   result[key] = (result[key] || 0) + value;
@@ -63,6 +67,14 @@ function getNumberField(value: unknown, key: string): number {
   return typeof record[key] === 'number' ? record[key] : 0;
 }
 
+function getOptionalNumberField(value: unknown, key: string): number | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record[key] === 'number' ? record[key] : undefined;
+}
+
 function extractBreakdownFromUsage(usage: unknown): TokenBreakdown {
   if (!usage || typeof usage !== 'object') {
     return {};
@@ -71,6 +83,7 @@ function extractBreakdownFromUsage(usage: unknown): TokenBreakdown {
   const inputDetails = record.input_tokens_details;
   const outputDetails = record.output_tokens_details;
   const breakdown: TokenBreakdown = {
+    total: getOptionalNumberField(record, 'total_tokens'),
     input: getNumberField(record, 'input_tokens'),
     output: getNumberField(record, 'output_tokens'),
     cached: getNumberField(inputDetails, 'cached_tokens'),
@@ -114,13 +127,13 @@ function extractBreakdownFromStructuredBody(body: string): TokenBreakdown {
   if (response && typeof response === 'object') {
     const usage = (response as Record<string, unknown>).usage;
     const breakdown = extractBreakdownFromUsage(usage);
-    if (breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
+    if (breakdown.total || breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
       return breakdown;
     }
   }
 
   const directBreakdown = extractBreakdownFromUsage(event.usage);
-  if (directBreakdown.input || directBreakdown.output || directBreakdown.cached || directBreakdown.reasoning) {
+  if (directBreakdown.total || directBreakdown.input || directBreakdown.output || directBreakdown.cached || directBreakdown.reasoning) {
     return directBreakdown;
   }
 
@@ -136,17 +149,18 @@ function addRegexMatches(result: TokenBreakdown, key: NumericBreakdownKey, regex
 export function extractBreakdownFromText(body: string): TokenBreakdown {
   let result: TokenBreakdown = {};
   const structured = extractBreakdownFromStructuredBody(body);
-  if (structured.input || structured.output || structured.cached || structured.reasoning) {
+  if (structured.total || structured.input || structured.output || structured.cached || structured.reasoning) {
     result = structured;
   }
 
   const regexMap: Array<[NumericBreakdownKey, RegExp]> = [
+    ['total', /total[_-]?tokens?["'\s:=]+(\d+)/gi],
     ['input', /input[_-]?tokens?["'\s:=]+(\d+)/gi],
     ['output', /output[_-]?tokens?["'\s:=]+(\d+)/gi],
     ['cached', /cached[_-]?tokens?["'\s:=]+(\d+)/gi],
     ['reasoning', /reasoning[_-]?tokens?["'\s:=]+(\d+)/gi],
   ];
-  if (!result.input && !result.output && !result.cached && !result.reasoning) {
+  if (!result.total && !result.input && !result.output && !result.cached && !result.reasoning) {
     for (const [key, regex] of regexMap) {
       addRegexMatches(result, key, regex, body);
     }
@@ -240,7 +254,7 @@ export async function readLogsDb(dbPath: string, enabled: boolean): Promise<Logs
       for (const record of records) {
         lastRowid = Number(record.rowid || lastRowid);
         const breakdown = extractBreakdownFromText(String(record.feedback_log_body || ''));
-        if (breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
+        if (breakdown.total || breakdown.input || breakdown.output || breakdown.cached || breakdown.reasoning) {
           parsed += 1;
           const current = byThreadId.get(String(record.thread_id)) || {};
           addBreakdown(current, breakdown);

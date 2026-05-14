@@ -41,6 +41,7 @@ describe('sessionReader token breakdown', () => {
     });
 
     expect(breakdown).toMatchObject({
+      total: 1280,
       input: 1200,
       cached: 900,
       output: 80,
@@ -105,6 +106,7 @@ describe('sessionReader token breakdown', () => {
     const session = result.sessionsById.get('thread-1');
 
     expect(session?.tokenBreakdown).toMatchObject({
+      total: 1580,
       input: 1500,
       cached: 900,
       output: 80,

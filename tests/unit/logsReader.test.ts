@@ -30,6 +30,7 @@ describe('logs token breakdown parsing', () => {
     ].join('');
 
     expect(extractBreakdownFromText(body)).toMatchObject({
+      total: 28461,
       input: 28370,
       cached: 2432,
       output: 91,
@@ -62,8 +63,9 @@ describe('logs token breakdown parsing', () => {
   });
 
   it('falls back to scanning all textual token fields', () => {
-    const body = 'tool input_tokens: 0 response input_tokens: 100 cached_tokens: 25 output_tokens: 5';
+    const body = 'tool input_tokens: 0 response total_tokens: 105 input_tokens: 100 cached_tokens: 25 output_tokens: 5';
     expect(extractBreakdownFromText(body)).toMatchObject({
+      total: 105,
       input: 100,
       cached: 25,
       output: 5,

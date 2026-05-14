@@ -110,6 +110,7 @@ export interface WorkspaceSummary {
 }
 
 export interface TokenBreakdown {
+  total?: number;
   input?: number;
   output?: number;
   cached?: number;
