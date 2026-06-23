@@ -14,7 +14,14 @@ import type {
   WorkspaceSummary,
 } from '../../shared/contracts';
 import { formatDuration, formatInteger, formatPercent, formatTokens } from '../../shared/formatting';
-import { ALL_WORKSPACES_ID, anonymizePath } from '../../shared/pathUtils';
+import {
+  ALL_WORKSPACES_ID,
+  anonymizePath,
+  friendlyWorkspaceName,
+  isWorkspaceIgnored,
+  normalizeWorkspacePath,
+  workspaceIdFromPath,
+} from '../../shared/pathUtils';
 import {
   bucketKey,
   bucketLabel,
@@ -47,7 +54,7 @@ interface CacheEnvelope {
   data: UsageData;
 }
 
-const CACHE_SCHEMA_VERSION = 4;
+const CACHE_SCHEMA_VERSION = 7;
 
 function reviveDate(value: unknown): Date | undefined {
   if (!value) {
@@ -83,9 +90,10 @@ function sumOptional(a: number | undefined, b: number | undefined): number | und
   return (a || 0) + (b || 0);
 }
 
-function totalTokensForRun(fallback: number, breakdown?: TokenBreakdown): number {
-  if (!hasBreakdownValues(breakdown)) {
-    return fallback;
+function totalTokensForRun(stateTokens: number, breakdown?: TokenBreakdown): number {
+  // Keep dashboard totals on the same source as Codex state; parsed totals can use a different cached-token scope.
+  if (stateTokens > 0 || !hasBreakdownValues(breakdown)) {
+    return stateTokens;
   }
   if (breakdown?.total !== undefined) {
     return breakdown.total;
@@ -93,7 +101,19 @@ function totalTokensForRun(fallback: number, breakdown?: TokenBreakdown): number
   if (breakdown?.input !== undefined || breakdown?.output !== undefined) {
     return (breakdown.input || 0) + (breakdown.output || 0);
   }
-  return fallback;
+  return stateTokens;
+}
+
+function breakdownWithAuthoritativeTotal(breakdown: TokenBreakdown | undefined, totalTokens: number): TokenBreakdown | undefined {
+  if (!hasBreakdownValues(breakdown)) {
+    return undefined;
+  }
+  const resolved: TokenBreakdown = {
+    ...breakdown,
+    total: totalTokens,
+  };
+  resolved.cacheHitRate = cacheHitRateForBreakdown(resolved);
+  return resolved;
 }
 
 function tokenBreakdownDetailItems(breakdown: TokenBreakdown, divisor = 1): MetricCard['detailItems'] {
@@ -120,6 +140,7 @@ function tokenCacheDetailItems(breakdown: TokenBreakdown): MetricCard['detailIte
 export class UsageService {
   private currentData: UsageData | null = null;
   private currentSettings: AppSettings | null = null;
+  private currentFingerprint: string | null = null;
   private readonly refreshGate = new SingleFlight();
 
   constructor(
@@ -137,11 +158,17 @@ export class UsageService {
     const detection = detectSources(settings);
     const fingerprint = this.createFingerprint(settings, detection);
 
+    if (!force && this.currentData && this.currentFingerprint === fingerprint) {
+      this.currentSettings = settings;
+      return this.currentData;
+    }
+
     if (!force) {
       const cached = this.loadCache(fingerprint);
       if (cached) {
         this.currentData = cached;
         this.currentSettings = settings;
+        this.currentFingerprint = fingerprint;
         return cached;
       }
     }
@@ -209,12 +236,13 @@ export class UsageService {
     };
     this.currentData = data;
     this.currentSettings = settings;
+    this.currentFingerprint = fingerprint;
     this.saveCache({ version: CACHE_SCHEMA_VERSION, fingerprint, data });
     return data;
   }
 
   async getSnapshot(filters: UsageFilters): Promise<UsageSnapshot> {
-    const data = this.currentData || await this.refresh(false);
+    const data = await this.refresh(false);
     return this.buildSnapshot(data, filters);
   }
 
@@ -227,11 +255,12 @@ export class UsageService {
       return null;
     }
     this.currentData = cached;
+    this.currentFingerprint = null;
     return this.buildSnapshot(cached, filters);
   }
 
   async getProjectDetail(workspaceId: string, filters: UsageFilters): Promise<ProjectDetail> {
-    const data = this.currentData || await this.refresh(false);
+    const data = await this.refresh(false);
     const snapshot = this.buildSnapshot(data, { ...filters, workspaceId });
     const workspace = data.workspaces.find((item) => item.id === workspaceId) || snapshot.selectedWorkspace;
     if (!workspace) {
@@ -262,7 +291,7 @@ export class UsageService {
   }
 
   async getDiagnostics(): Promise<DiagnosticsSnapshot> {
-    const data = this.currentData || await this.refresh(false);
+    const data = await this.refresh(false);
     return data.diagnostics;
   }
 
@@ -414,14 +443,21 @@ export class UsageService {
     logBreakdowns: Map<string, TokenBreakdown>,
     settings: AppSettings,
   ): RunRecord[] {
-    return threads
+    const threadIds = new Set(threads.map((thread) => thread.id));
+    const threadFileStems = new Set(
+      threads
+        .map((thread) => thread.rolloutPath ? path.basename(thread.rolloutPath, '.jsonl') : undefined)
+        .filter((fileStem): fileStem is string => Boolean(fileStem)),
+    );
+
+    const threadRuns: RunRecord[] = threads
       .filter((thread) => settings.includeArchivedSessions || !thread.archived)
       .map((thread) => {
         const fileStem = thread.rolloutPath ? path.basename(thread.rolloutPath, '.jsonl') : undefined;
         const timing = sessions.sessionsById.get(thread.id) || (fileStem ? sessions.sessionsByFileStem.get(fileStem) : undefined);
         const jsonlStart = timing?.start;
         const jsonlEnd = timing?.end;
-        const durationMethod = timing?.activeMs && timing.activeMs > 0 ? 'jsonl-events' : 'thread-span';
+        const durationMethod: RunRecord['durationMethod'] = timing?.activeMs && timing.activeMs > 0 ? 'jsonl-events' : 'thread-span';
         const start = jsonlStart || thread.createdAt;
         const end = jsonlEnd || thread.updatedAt;
         const fallbackDuration = Math.max(0, end.getTime() - start.getTime());
@@ -431,8 +467,9 @@ export class UsageService {
           : Math.min(fallbackDuration, maxSingleRunMs);
         const jsonlBreakdown = timing?.tokenBreakdown;
         const logBreakdown = logBreakdowns.get(thread.id);
-        const breakdown = this.resolveRunBreakdown(jsonlBreakdown, logBreakdown);
-        const totalTokens = totalTokensForRun(thread.tokensUsed, breakdown);
+        const parsedBreakdown = this.resolveRunBreakdown(jsonlBreakdown, logBreakdown);
+        const totalTokens = totalTokensForRun(thread.tokensUsed, parsedBreakdown);
+        const breakdown = breakdownWithAuthoritativeTotal(parsedBreakdown, totalTokens);
         return {
           id: thread.id,
           title: thread.title,
@@ -451,6 +488,49 @@ export class UsageService {
           archived: thread.archived,
         };
       });
+
+    const sessionOnlyRuns: RunRecord[] = [...sessions.sessionsById.values()]
+      .filter((session) => settings.includeArchivedSessions || !session.archived)
+      .filter((session) => !threadIds.has(session.id))
+      .filter((session) => !threadFileStems.has(path.basename(session.filePath, '.jsonl')))
+      .filter((session) => session.start || session.end)
+      .map((session) => {
+        const cwd = session.cwd || '(unknown)';
+        const normalizedPath = normalizeWorkspacePath(cwd, settings.aliases);
+        const workspaceId = workspaceIdFromPath(normalizedPath);
+        const start = session.start || session.end || new Date(0);
+        const end = session.end || session.start || start;
+        const durationMethod: RunRecord['durationMethod'] = session.activeMs && session.activeMs > 0 ? 'jsonl-events' : 'thread-span';
+        const fallbackDuration = Math.max(0, end.getTime() - start.getTime());
+        const maxSingleRunMs = settings.idleGapMinutes * 60 * 1000 * 24;
+        const durationMs = durationMethod === 'jsonl-events'
+          ? Number(session.activeMs || 0)
+          : Math.min(fallbackDuration, maxSingleRunMs);
+        const logBreakdown = logBreakdowns.get(session.id);
+        const parsedBreakdown = this.resolveRunBreakdown(session.tokenBreakdown, logBreakdown);
+        const totalTokens = totalTokensForRun(0, parsedBreakdown);
+        const breakdown = breakdownWithAuthoritativeTotal(parsedBreakdown, totalTokens);
+        return {
+          id: session.id,
+          title: `JSONL session ${session.id.slice(0, 8)}`,
+          workspaceId,
+          workspaceName: friendlyWorkspaceName(normalizedPath),
+          workspacePath: normalizedPath,
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          durationMs,
+          durationMethod,
+          model: session.model || 'unknown',
+          modelProvider: 'unknown',
+          totalTokens,
+          tokenBreakdown: breakdown || { unavailableReason: 'Breakdown unavailable for this run.' },
+          rolloutPath: session.filePath,
+          archived: session.archived,
+        };
+      })
+      .filter((run) => !isWorkspaceIgnored(run.workspacePath, settings.ignoredWorkspaces));
+
+    return [...threadRuns, ...sessionOnlyRuns];
   }
 
   private createWorkspaces(runs: RunRecord[], threads: ThreadRecord[]): WorkspaceSummary[] {
@@ -471,9 +551,20 @@ export class UsageService {
       }
     }
     for (const run of runs) {
-      const current = map.get(run.workspaceId);
+      let current = map.get(run.workspaceId);
       if (!current) {
-        continue;
+        current = {
+          id: run.workspaceId,
+          displayName: run.workspaceName,
+          normalizedPath: run.workspacePath,
+          rawPath: run.workspacePath,
+          runs: 0,
+          tokens: 0,
+          agentTimeMs: 0,
+          activeDays: 0,
+          hidden: false,
+        };
+        map.set(run.workspaceId, current);
       }
       current.runs += 1;
       current.tokens += run.totalTokens;
@@ -628,13 +719,30 @@ export class UsageService {
         return `${target}:missing`;
       }
     };
+    const jsonlFilesPart = (root: string, files: string[]) => {
+      const rootStat = statPart(root);
+      const entries = [...files]
+        .sort((a, b) => a.localeCompare(b))
+        .map((filePath) => {
+          try {
+            const stat = fs.statSync(filePath);
+            const relativePath = path.relative(root, filePath) || path.basename(filePath);
+            return `${relativePath}:${stat.size}:${stat.mtimeMs}`;
+          } catch {
+            const relativePath = path.relative(root, filePath) || path.basename(filePath);
+            return `${relativePath}:missing`;
+          }
+        });
+      return `${rootStat}:${entries.length}:${entries.join(',')}`;
+    };
     const sourceParts = [
       statPart(detection.stateDbPath),
       statPart(detection.logsDbPath),
-      statPart(detection.sessionsDir),
-      statPart(detection.archivedSessionsDir),
+      jsonlFilesPart(detection.sessionsDir, detection.sessionFiles),
+      jsonlFilesPart(detection.archivedSessionsDir, detection.archivedSessionFiles),
       JSON.stringify({
-        tokenBreakdownParserVersion: 4,
+        sourceFingerprintVersion: 7,
+        tokenBreakdownParserVersion: 7,
         codexDir: settings.codexDir,
         includeArchivedSessions: settings.includeArchivedSessions,
         includeDetailedLogs: settings.includeDetailedLogs,

@@ -32,6 +32,25 @@ export interface StateReadResult {
   rows: number;
 }
 
+interface SqliteColumnRow {
+  name: string;
+}
+
+interface StateThreadRow {
+  id?: string | number | null;
+  rollout_path?: string | null;
+  created_at?: number | string | null;
+  updated_at?: number | string | null;
+  created_at_ms?: number | string | null;
+  updated_at_ms?: number | string | null;
+  cwd?: string | null;
+  title?: string | null;
+  model_provider?: string | null;
+  model?: string | null;
+  tokens_used?: number | string | null;
+  archived?: number | boolean | string | null;
+}
+
 function dateFromFields(msValue?: number | null, secondsValue?: number | null): Date {
   if (typeof msValue === 'number' && msValue > 0) {
     return new Date(msValue);
@@ -81,7 +100,7 @@ export function readStateDb(dbPath: string, settings: AppSettings): StateReadRes
       };
     }
 
-    const columns = db.prepare('pragma table_info(threads)').all().map((row: any) => String(row.name));
+    const columns = (db.prepare('pragma table_info(threads)').all() as SqliteColumnRow[]).map((row) => String(row.name));
     const required = ['id', 'cwd', 'created_at', 'updated_at', 'tokens_used'];
     const missing = required.filter((column) => !columns.includes(column));
     if (missing.length) {
@@ -109,7 +128,7 @@ export function readStateDb(dbPath: string, settings: AppSettings): StateReadRes
       optionalColumn(columns, 'archived', '0'),
     ].join(', ');
 
-    const rows = db.prepare(`select ${select} from threads`).all() as any[];
+    const rows = db.prepare(`select ${select} from threads`).all() as StateThreadRow[];
     const threads = rows
       .map((row, index): ThreadRecord => {
         const normalizedPath = normalizeWorkspacePath(row.cwd || '(unknown)', settings.aliases);
@@ -127,7 +146,7 @@ export function readStateDb(dbPath: string, settings: AppSettings): StateReadRes
           modelProvider: String(row.model_provider || 'unknown'),
           model: String(row.model || 'unknown'),
           tokensUsed: Number(row.tokens_used || 0),
-          archived: Boolean(row.archived),
+          archived: Boolean(Number(row.archived || 0)),
           hidden: isWorkspaceIgnored(normalizedPath, settings.ignoredWorkspaces),
         };
       });

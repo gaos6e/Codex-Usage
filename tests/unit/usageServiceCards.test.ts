@@ -72,7 +72,7 @@ function createServiceWithCache(runs: RunRecord[]): UsageService {
   };
 
   fs.writeFileSync(cachePath, JSON.stringify({
-    version: 4,
+    version: 7,
     fingerprint: 'test',
     data: {
       generatedAt: diagnostics.generatedAt,
@@ -98,6 +98,33 @@ function createServiceWithCache(runs: RunRecord[]): UsageService {
   });
 }
 
+class RefreshCountingUsageService extends UsageService {
+  refreshCalls = 0;
+
+  async refresh(): Promise<Awaited<ReturnType<UsageService['refresh']>>> {
+    this.refreshCalls += 1;
+    const baseDir = createTempDir();
+    const generatedAt = new Date(2026, 3, 23, 12).toISOString();
+    const diagnostics: DiagnosticsSnapshot = {
+      codexDir: 'C:\\Users\\me\\.codex',
+      generatedAt,
+      parseDurationMs: 1,
+      sources: [],
+      warnings: [],
+      cacheStatus: 'rebuilt',
+      appDataDir: baseDir,
+      logFilePath: path.join(baseDir, 'logs', 'main.log'),
+    };
+    return {
+      generatedAt,
+      threads: [],
+      runs: [],
+      workspaces: [],
+      diagnostics,
+    } as Awaited<ReturnType<UsageService['refresh']>>;
+  }
+}
+
 function customFilters(view: 'time' | 'tokens'): UsageFilters {
   return {
     workspaceId: ALL_WORKSPACES_ID,
@@ -111,6 +138,26 @@ function detailValues(card: MetricCard): Array<[string, string | undefined]> {
 }
 
 describe('usage metric cards', () => {
+  it('checks source data on each live snapshot request', async () => {
+    const baseDir = createTempDir();
+    const service = new RefreshCountingUsageService({
+      baseDir,
+      settingsPath: path.join(baseDir, 'settings.json'),
+      cacheDir: path.join(baseDir, 'cache'),
+      cachePath: path.join(baseDir, 'cache', 'summary-cache.json'),
+      logsDir: path.join(baseDir, 'logs'),
+      logFilePath: path.join(baseDir, 'logs', 'main.log'),
+      exportsDir: path.join(baseDir, 'exports'),
+    }, () => {
+      throw new Error('settings not needed');
+    });
+
+    await service.getSnapshot(customFilters('time'));
+    await service.getSnapshot(customFilters('time'));
+
+    expect(service.refreshCalls).toBe(2);
+  });
+
   it('orders time cards for the dashboard', () => {
     const service = createServiceWithCache([
       createRun('1', new Date(2026, 3, 21, 10), 1000, 700, 300),

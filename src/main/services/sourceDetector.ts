@@ -8,8 +8,19 @@ export interface SourceDetection {
   sessionsDir: string;
   archivedSessionsDir: string;
   logsDbPath: string;
+  sessionFiles: string[];
+  archivedSessionFiles: string[];
   statuses: SourceStatus[];
   warnings: DiagnosticWarning[];
+}
+
+interface SqliteColumnRow {
+  name: string;
+}
+
+interface SqliteRangeRow {
+  minValue?: string | number | null;
+  maxValue?: string | number | null;
 }
 
 function safeStat(target: string): fs.Stats | null {
@@ -48,22 +59,22 @@ function inspectSqlite(dbPath: string, tableName: string): { rows?: number; colu
   try {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
     db.pragma('query_only = ON');
-    const tables = db.prepare("select name from sqlite_master where type='table' and name = ?").all(tableName);
+    const tables = db.prepare("select name from sqlite_master where type='table' and name = ?").all(tableName) as SqliteColumnRow[];
     if (!tables.length) {
       db.close();
       return { warning: `Table ${tableName} is missing` };
     }
-    const columns = db.prepare(`pragma table_info(${tableName})`).all().map((row: any) => String(row.name));
+    const columns = (db.prepare(`pragma table_info(${tableName})`).all() as SqliteColumnRow[]).map((row) => String(row.name));
     const rows = db.prepare(`select count(*) as count from ${tableName}`).get() as { count: number };
     let earliest: string | undefined;
     let latest: string | undefined;
     if (tableName === 'threads' && columns.includes('created_at')) {
-      const range = db.prepare('select min(created_at) as minValue, max(updated_at) as maxValue from threads').get() as any;
+      const range = db.prepare('select min(created_at) as minValue, max(updated_at) as maxValue from threads').get() as SqliteRangeRow | undefined;
       earliest = range?.minValue ? new Date(Number(range.minValue) * 1000).toISOString() : undefined;
       latest = range?.maxValue ? new Date(Number(range.maxValue) * 1000).toISOString() : undefined;
     }
     if (tableName === 'logs' && columns.includes('ts')) {
-      const range = db.prepare('select min(ts) as minValue, max(ts) as maxValue from logs').get() as any;
+      const range = db.prepare('select min(ts) as minValue, max(ts) as maxValue from logs').get() as SqliteRangeRow | undefined;
       earliest = range?.minValue ? String(range.minValue) : undefined;
       latest = range?.maxValue ? String(range.maxValue) : undefined;
     }
@@ -140,5 +151,14 @@ export function detectSources(settings: AppSettings): SourceDetection {
     }
   }
 
-  return { stateDbPath, sessionsDir, archivedSessionsDir, logsDbPath, statuses, warnings };
+  return {
+    stateDbPath,
+    sessionsDir,
+    archivedSessionsDir,
+    logsDbPath,
+    sessionFiles,
+    archivedSessionFiles: archivedFiles,
+    statuses,
+    warnings,
+  };
 }
