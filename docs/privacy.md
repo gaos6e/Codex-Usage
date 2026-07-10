@@ -1,20 +1,15 @@
-# Privacy Notes
+# 隐私边界
 
-The app is local-first and read-only against Codex data sources.
+Codex Usage 2.0 对 `~/.codex` 只读，默认完全离线，无遥测、无后台上传、无代理、无账号读取，也不访问 `auth.json`。唯一可选网络操作是用户主动点击的可信价格更新；应用前必须展示来源、更新时间和差异。当前 `logs_2.sqlite` 实现只读取可验证的 `id/rowid` 数值水位，连日志正文也不选择。
 
-Default behavior:
+绝不读取或持久化：
 
-- No background upload.
-- No remote telemetry.
-- No conversation body display.
-- No export without explicit user action.
-- Export can use full local paths or anonymized workspace names.
+- `first_user_message`、`preview`、原始会话标题、用户提示词、助手回复、推理或会话正文；
+- 工具输出正文、源代码、凭据和任意工作区文件内容；
+- 工具参数、shell 命令正文或工具调用涉及的文件路径。
 
-Data stored under `%LOCALAPPDATA%\CodexUsage`:
+允许保存的路径仅限产品功能明确需要的工作区路径和 Codex 数据源相对路径。工具参数只在 `Activity` Module 的当前调用栈内分类为搜索、读取、写入、编辑、执行或其他，返回前丢弃原文。
 
-- `settings.json`
-- `cache\summary-cache.json`
-- `logs\main.log`
-- optional export files chosen by the user
+会话标题由日期和稳定短 ID 合成。导出仅在用户主动操作时生成，支持匿名路径与完整工作区路径两种模式；两种模式都不包含对话和工具原文。
 
-The cache stores computed summaries and source fingerprints. It should not contain prompt text, tool output, credentials, or workspace source content.
+v2 设置、分析数据库和脱敏日志使用 `%LOCALAPPDATA%\CodexUsage\v2`。隐私测试会把唯一敏感标记放入合成提示词、回复、工具参数、命令、路径和代码中，并扫描主数据库、WAL、CSV、JSON 与 PNG 元数据，任何命中都视为失败。清空分析库只删除派生统计，保留价格/设置且不触碰源目录。

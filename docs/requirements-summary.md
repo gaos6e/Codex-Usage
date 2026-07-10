@@ -1,16 +1,17 @@
-# Requirements Summary
+# Codex Usage 2.0 功能边界
 
-Codex Usage is a local-first Windows desktop app for inspecting local Codex usage by workspace, time range, and metric view.
+Codex Usage 是仅面向 OpenAI Codex 的 Windows 本地用量分析应用。它不实现代理、请求拦截、账号、多账号、在线配额、会话正文搜索、后台价格更新或应用自动更新。
 
-Implemented first-version surfaces:
+已交付界面包括：
 
-- Dashboard with workspace selector, exact time presets, custom range, daily/weekly chart, Time/Tokens toggle, metric cards, run list, refresh, and export actions.
-- Project Detail with workspace trend, runs, model token distribution, peak days, and recent sessions.
-- Settings with Codex data directory, archived sessions, logs toggle, auto-refresh, idle gap cap, theme, and path aliases.
-- Diagnostics with detected sources, schema columns, parser warnings, cache status, app data path, and log path.
+- 总览：全部时间预设、固定/实时自定义范围、工作区/提供方/模型/归档级联筛选、Hero、小时/日/周趋势和导出；
+- 项目：搜索、五种业务排序、服务端分页、别名、忽略和工作区上下文导航；打开工作区后，全局筛选会贯穿总览、会话、模型、活动及各自导出，形成统一项目详情；
+- 会话：服务端分页表、Token 分类、成本、活跃计算方法、归档/完整性，以及仅含结构化数据的详情抽屉和最近 90 天 Token 事件分页；
+- 模型与成本：提供方/模型统计、规范化计价 ID、未定价状态、价格增删改/恢复和显式触发的官方差异预览；
+- 活动：会话数/Token/活跃时间热力图、工具类别、只读/变更/执行分类、Top 工具和每日趋势；
+- 数据：四类来源能力、索引与安全水位、同步历史、修复/重建/取消/清空；
+- 设置：中英文、浅色/暗色/系统主题、字体缩放和活跃时间空闲间隔。
 
-Privacy boundary:
+所有页面使用后端聚合或服务端分页；全局筛选进入 TanStack Query key。同步完成事件会精确失效 Dashboard、工作区、会话、事件、模型、热力图、工具和诊断查询。浏览器预览只返回显式空状态，不生成演示用量。
 
-- Reads `state_5.sqlite`, session JSONL timestamps/metadata, and best-effort `logs_2.sqlite` token fields.
-- Does not read or export `first_user_message` or JSONL conversation content.
-- Does not scan `auth.json`, credential backups, sandbox secrets, or arbitrary workspace source files.
+隐私边界以 [privacy.md](privacy.md) 为准；性能证据以 [performance.md](performance.md) 为准。

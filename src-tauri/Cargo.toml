@@ -1,0 +1,62 @@
+[package]
+name = "codex-usage"
+version = "2.0.0"
+description = "Offline-first local Codex usage analytics"
+authors = ["gaos6e"]
+license = "MIT"
+edition = "2024"
+rust-version = "1.85"
+default-run = "codex-usage"
+
+[lib]
+name = "codex_usage_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "codex-usage"
+path = "src/main.rs"
+
+[[bin]]
+name = "usage-benchmark"
+path = "src/bin/usage-benchmark.rs"
+
+[[bin]]
+name = "query-benchmark"
+path = "src/bin/query-benchmark.rs"
+
+[[bin]]
+name = "incremental-benchmark"
+path = "src/bin/incremental-benchmark.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10.4", features = ["serde"] }
+blake3 = "1"
+dirs = "6"
+iana-time-zone = "0.1.65"
+parking_lot = "0.12"
+r2d2 = "0.8"
+r2d2_sqlite = "0.33"
+regex = "1"
+reqwest = { version = "0.13.4", default-features = false, features = ["native-tls-no-alpn", "system-proxy"] }
+rusqlite = { version = "0.39", features = ["bundled", "chrono", "functions"] }
+rust_decimal = { version = "1.42.1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-dialog = "2.7.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+panic = "abort"
+strip = "symbols"

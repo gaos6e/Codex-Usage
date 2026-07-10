@@ -1,83 +1,76 @@
-# Codex Usage
+# Codex Usage 2.0
 
-Codex Usage is a local-first Windows desktop app that reads local Codex usage data and shows usage by workspace, time range, and metric view.
+Codex Usage 是面向 OpenAI Codex 的 Windows 本地用量分析应用。2.0 使用 Tauri 2、Rust、React、TypeScript 与 Vite 重写，直接在后台增量索引 `~/.codex`，不依赖代理或云服务。
 
-## Features
+## 隐私边界
 
-- Dashboard with Time and Tokens views.
-- Workspace grouping from normalized `threads.cwd`.
-- Time presets: Today, Last 7 days, Last 30 days, Last 90 days, All time, and Custom range.
-- Estimated agent time from JSONL event timestamps with a configurable idle-gap cap.
-- Total tokens from `state_5.sqlite`, with best-effort breakdown from `logs_2.sqlite`.
-- Project Detail, Settings, Diagnostics, Light/Dark themes, CSV/JSON/image export.
-- Privacy boundary: thread titles are allowed, but conversation content and `first_user_message` are not read or exported.
+- 不查询或保存提示词、助手回复、标题、预览、首条用户消息、代码或命令正文。
+- 工具参数只在内存中用于“搜索/读取/写入/编辑/执行/其他”分类，分类后立即丢弃。
+- 不读取 `auth.json`、ChatGPT 在线配额或账号信息。
+- 唯一可选联网能力是用户主动触发的 OpenAI 官方价格检查；更新必须先预览差异再应用。
+- CSV、JSON 与 PNG 导出不包含对话内容；结构化导出支持匿名路径和完整路径模式。
 
-## Technology Stack
+详细约束见 [docs/privacy.md](docs/privacy.md)。
 
-- Electron Forge + Webpack + TypeScript
-- React
-- `better-sqlite3`
-- Recharts
-- lucide-react
-- Vitest and Playwright
+## 功能
 
-## Install
+- 今日、24 小时、7/14/30/90 天、全部与固定/实时自定义范围。
+- 工作区、模型提供方、模型和归档状态级联筛选。
+- Hero 指标、monotone 渐变趋势图、年度活跃热力图。
+- 工作区、会话、模型、定价、工具活动和数据诊断页面。
+- 90 天事件明细与永久会话/每日/模型/工具汇总。
+- 后台首次导入、真实进度、取消、断点续传、增量同步、重建和修复。
+- 中英文、浅色/暗色/系统主题、字体缩放与 reduced-motion。
+
+## 开发
+
+环境要求：Node.js/npm、Rust stable MSVC、Visual Studio Build Tools C++ workload、WebView2 Runtime。
 
 ```powershell
-cd D:\codex-usage-windows-app
 npm install
+npm run dev
 ```
 
-## Development
+运行 Tauri 开发窗口：
 
 ```powershell
-npm start
+npm run tauri:dev
 ```
 
-The app defaults to `%USERPROFILE%\.codex`. You can choose another `.codex` directory in Settings.
-
-## Test
+## 验证
 
 ```powershell
 npm run typecheck
-npm test
 npm run lint
+npm test
+npm run build
+
+Set-Location src-tauri
+cargo fmt --check
+cargo check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
 ```
 
-E2E tests are configured as a manual smoke-test placeholder:
+真实只读数据 benchmark：
 
 ```powershell
-$env:RUN_E2E = "1"
-npm run test:e2e
+Set-Location src-tauri
+cargo run --release --bin usage-benchmark -- "$HOME\.codex" "$env:LOCALAPPDATA\CodexUsage\benchmarks\fresh.sqlite3"
 ```
 
-## Package
+benchmark 只读取 `~/.codex`，分析库写到显式指定路径。目标和实测结果见 [docs/performance.md](docs/performance.md)。
+
+## 构建
 
 ```powershell
-npm run make
+npm run tauri:build
 ```
 
-Expected Windows installer output:
+NSIS 安装器与 Release EXE 位于 `src-tauri/target/release`；最终交付同时提供便携 ZIP。产物路径、哈希和 smoke test 见 [docs/packaging.md](docs/packaging.md)。应用数据保存在：
 
 ```text
-D:\codex-usage-windows-app\out\make\squirrel.windows\x64\Codex Usage Setup.exe
+%LOCALAPPDATA%\CodexUsage\v2\codex-usage-v2.sqlite3
 ```
 
-Forge also creates a `.nupkg` and `RELEASES` file in the same folder.
-
-## Runtime Data
-
-Application settings, cache, logs, and default exports are stored under:
-
-```text
-%LOCALAPPDATA%\CodexUsage
-```
-
-The packaged app does not depend on `C:\base` or `D:\codex-usage-windows-app` at runtime.
-
-## Common Issues
-
-- If `state_5.sqlite` is missing, open Settings and choose a valid Codex data directory.
-- If token breakdown is unavailable, the app still shows total tokens from `threads.tokens_used`.
-- If the installer is unsigned, Windows SmartScreen may show a warning.
-- If native module rebuilding fails during packaging, install the Visual Studio Build Tools workload for desktop C++ and rerun `npm run make`.
+2.0 不迁移 1.x 缓存或设置，详见 [docs/migration-and-cleanup.md](docs/migration-and-cleanup.md)。

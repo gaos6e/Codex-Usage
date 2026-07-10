@@ -1,22 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2021",
-    "lib": ["DOM", "DOM.Iterable", "ES2021"],
-    "jsx": "react-jsx",
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "allowJs": false,
-    "module": "commonjs",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "noImplicitAny": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "outDir": "dist",
-    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
-      "*": ["node_modules/*"]
+      "@/*": ["ui/src/*"]
     },
-    "types": ["node", "electron", "react", "react-dom"]
+    "types": ["vite/client", "vitest/globals"]
   },
-  "include": ["src/**/*", "tests/**/*", "vitest.config.ts", "playwright.config.ts"]
+  "include": ["ui/src", "vite.config.ts", "vitest.config.ts"]
 }

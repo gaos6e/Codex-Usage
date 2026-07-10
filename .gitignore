@@ -84,12 +84,13 @@ typings/
 # DynamoDB Local files
 .dynamodb/
 
-# Webpack
-.webpack/
-
 # Vite
 .vite/
 
-# Electron-Forge
-out/
-Codex Usage Setup.exe
+# Tauri / Rust
+src-tauri/target/
+dist/
+
+# Local UI QA artifacts
+output/
+.playwright-cli/
