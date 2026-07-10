@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import type { ResolvedRange, TrendPoint } from '../types';
 import { formatCost, formatExact } from '../lib/format';
+import { readLocalPreference, storageKeys, writeLocalPreference } from '../lib/storage';
 
 export type TrendSeriesKey =
   | 'freshInputTokens'
@@ -38,8 +39,6 @@ const SERIES: SeriesDefinition[] = [
   { key: 'reasoningTokens', label: '推理', color: '#f1a35b', gradient: 'reasoningGradient' },
   { key: 'estimatedCostMicrousd', label: '估算成本', color: '#f06b78', cost: true },
 ];
-
-const STORAGE_KEY = 'codex-usage.trend-series.v1';
 
 export function buildChartData(
   trend: TrendPoint[],
@@ -99,13 +98,13 @@ export function UsageTrendChart({ trend, granularity }: UsageTrendChartProps) {
   const { t } = useTranslation();
   const data = useMemo(() => buildChartData(trend, granularity), [trend, granularity]);
   const [visible, setVisible] = useState<Set<TrendSeriesKey>>(() =>
-    deserializeSeriesVisibility(window.localStorage.getItem(STORAGE_KEY)),
+    deserializeSeriesVisibility(readLocalPreference(storageKeys.trendSeries)),
   );
 
   const handleToggle = (key: TrendSeriesKey) => {
     setVisible((current) => {
       const next = toggleSeries(current, key);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
+      writeLocalPreference(storageKeys.trendSeries, JSON.stringify([...next]));
       return next;
     });
   };

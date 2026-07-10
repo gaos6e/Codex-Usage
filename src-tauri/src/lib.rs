@@ -12,6 +12,10 @@ pub mod source;
 pub mod store;
 
 use std::sync::Arc;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use commands::RuntimeState;
 use export::UsageExporter;
@@ -27,8 +31,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data_dir = app.path().local_data_dir()?.join("CodexUsage").join("v2");
-            let store = UsageStore::open(data_dir.join("codex-usage-v2.sqlite3"))
+            let database_path = resolve_analysis_database(&app.path().local_data_dir()?)
+                .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()))?;
+            let store = UsageStore::open(database_path)
                 .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()))?;
             let store = Arc::new(store);
             let timezone = system_timezone();
@@ -134,5 +139,117 @@ pub fn run() {
             commands::save_app_preferences
         ])
         .run(tauri::generate_context!())
-        .expect("Codex Usage runtime failed");
+        .expect("Chronolume runtime failed");
+}
+
+const DATA_DIRECTORY: &str = "Chronolume";
+const DATABASE_NAME: &str = "chronolume-v2.sqlite3";
+const LEGACY_DATA_DIRECTORY: &str = "CodexUsage";
+const LEGACY_DATABASE_NAME: &str = "codex-usage-v2.sqlite3";
+
+/// Moves the 2.0 analytics database to the Chronolume namespace before it is opened.
+/// The stable Tauri bundle identifier is intentionally retained so installed upgrades and
+/// WebView preferences continue to belong to the same application.
+fn resolve_analysis_database(local_data_root: &Path) -> std::io::Result<PathBuf> {
+    let data_dir = local_data_root.join(DATA_DIRECTORY).join("v2");
+    let legacy_data_dir = local_data_root.join(LEGACY_DATA_DIRECTORY).join("v2");
+
+    if !data_dir.exists() && legacy_data_dir.exists() {
+        if let Some(parent) = data_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&legacy_data_dir, &data_dir)?;
+    }
+    fs::create_dir_all(&data_dir)?;
+
+    let database_path = data_dir.join(DATABASE_NAME);
+    let legacy_database_path = data_dir.join(LEGACY_DATABASE_NAME);
+    let migration_started = legacy_database_path.exists()
+        || (database_path.exists()
+            && ["-wal", "-shm"].iter().any(|suffix| {
+                data_dir
+                    .join(format!("{LEGACY_DATABASE_NAME}{suffix}"))
+                    .exists()
+            }));
+    if migration_started {
+        for suffix in ["", "-wal", "-shm"] {
+            let legacy = data_dir.join(format!("{LEGACY_DATABASE_NAME}{suffix}"));
+            let current = data_dir.join(format!("{DATABASE_NAME}{suffix}"));
+            if legacy.exists() && !current.exists() {
+                fs::rename(legacy, current)?;
+            }
+        }
+    }
+    Ok(database_path)
+}
+
+#[cfg(test)]
+mod brand_migration_tests {
+    use super::*;
+
+    #[test]
+    fn migrates_legacy_database_directory_and_wal_sidecars() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let legacy = root.path().join(LEGACY_DATA_DIRECTORY).join("v2");
+        fs::create_dir_all(&legacy).expect("legacy data directory");
+        fs::write(legacy.join(LEGACY_DATABASE_NAME), b"database").expect("database");
+        fs::write(legacy.join(format!("{LEGACY_DATABASE_NAME}-wal")), b"wal").expect("wal");
+        fs::write(legacy.join(format!("{LEGACY_DATABASE_NAME}-shm")), b"shm").expect("shm");
+
+        let database = resolve_analysis_database(root.path()).expect("migrate database");
+
+        assert_eq!(
+            database,
+            root.path()
+                .join(DATA_DIRECTORY)
+                .join("v2")
+                .join(DATABASE_NAME)
+        );
+        assert_eq!(fs::read(&database).expect("migrated database"), b"database");
+        assert_eq!(
+            fs::read(database.with_file_name(format!("{DATABASE_NAME}-wal")))
+                .expect("migrated wal"),
+            b"wal"
+        );
+        assert_eq!(
+            fs::read(database.with_file_name(format!("{DATABASE_NAME}-shm")))
+                .expect("migrated shm"),
+            b"shm"
+        );
+        assert!(!legacy.exists());
+    }
+
+    #[test]
+    fn keeps_existing_chronolume_database_authoritative() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let current = root.path().join(DATA_DIRECTORY).join("v2");
+        let legacy = root.path().join(LEGACY_DATA_DIRECTORY).join("v2");
+        fs::create_dir_all(&current).expect("current data directory");
+        fs::create_dir_all(&legacy).expect("legacy data directory");
+        fs::write(current.join(DATABASE_NAME), b"current").expect("current database");
+        fs::write(legacy.join(LEGACY_DATABASE_NAME), b"legacy").expect("legacy database");
+
+        let database = resolve_analysis_database(root.path()).expect("resolve database");
+
+        assert_eq!(fs::read(database).expect("current database"), b"current");
+        assert!(legacy.join(LEGACY_DATABASE_NAME).exists());
+    }
+
+    #[test]
+    fn resumes_after_the_main_database_was_already_renamed() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let current = root.path().join(DATA_DIRECTORY).join("v2");
+        fs::create_dir_all(&current).expect("current data directory");
+        fs::write(current.join(DATABASE_NAME), b"database").expect("current database");
+        fs::write(current.join(format!("{LEGACY_DATABASE_NAME}-wal")), b"wal").expect("legacy wal");
+
+        let database = resolve_analysis_database(root.path()).expect("resume migration");
+
+        assert_eq!(fs::read(&database).expect("database"), b"database");
+        assert_eq!(
+            fs::read(database.with_file_name(format!("{DATABASE_NAME}-wal")))
+                .expect("migrated wal"),
+            b"wal"
+        );
+    }
 }

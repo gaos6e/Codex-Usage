@@ -39,7 +39,7 @@ export function DataPage() {
   }, [diagnostics.data?.sources]);
 
   const confirmClear = () => {
-    if (window.confirm(t('仅清空 Codex Usage v2 分析库。~/.codex 原始数据不会被修改。是否继续？'))) clear.mutate();
+    if (window.confirm(t('仅清空 Chronolume v2 分析库。~/.codex 原始数据不会被修改。是否继续？'))) clear.mutate();
   };
 
   return <section className="feature-page">
@@ -66,7 +66,7 @@ export function DataPage() {
         <button type="button" className="quiet-button" disabled={refresh.isPending} onClick={() => refresh.mutate('rebuild')}><Wrench />{t('重新索引')}</button>
         <button type="button" className="danger-button" disabled={clear.isPending} onClick={confirmClear}><Trash2 />{t('清空分析库')}</button>
       </div>
-      <p className="privacy-note">{t('这些操作只写入 %LOCALAPPDATA%\\CodexUsage\\v2；不会写入、移动或删除 ~/.codex。')}</p>
+      <p className="privacy-note">{t('这些操作只写入 %LOCALAPPDATA%\\Chronolume\\v2；不会写入、移动或删除 ~/.codex。')}</p>
     </section>
     <section className="feature-card">
       <div className="feature-card-heading"><div><span>RUNS</span><h2>{t('最近同步与性能')}</h2></div></div>

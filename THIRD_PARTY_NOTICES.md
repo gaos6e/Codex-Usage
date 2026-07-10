@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Codex Usage 使用 `package-lock.json` 与 `src-tauri/Cargo.lock` 中列出的开源依赖。各依赖保留其原许可证；分发时相应许可证元数据随包管理锁文件和上游项目提供。
+Chronolume 使用 `package-lock.json` 与 `src-tauri/Cargo.lock` 中列出的开源依赖。各依赖保留其原许可证；分发时相应许可证元数据随包管理锁文件和上游项目提供。
 
 ## cc-switch
 
@@ -10,7 +10,7 @@ Codex Usage 使用 `package-lock.json` 与 `src-tauri/Cargo.lock` 中列出的�
 - Copyright: Copyright (c) 2025 Jason Young
 - Reviewed files: `UsageDashboard.tsx`, `UsageHero.tsx`, `UsageTrendChart.tsx`, `UsageDateRangePicker.tsx`, `RequestLogTable.tsx`, `ModelStatsTable.tsx`, `ProviderStatsTable.tsx`, `session_usage_codex.rs`, `usage_stats.rs`, `usage_rollup.rs`, and database schema.
 
-Codex Usage 的视觉层级与趋势图交互参考了上述文件，但 Rust 数据模型、解析、查询和 React 组件均在本仓库重新实现；未复制 cc-switch 品牌或 Logo。
+Chronolume 的视觉层级与趋势图交互参考了上述文件，但 Rust 数据模型、解析、查询和 React 组件均在本仓库重新实现；未复制 cc-switch 品牌或 Logo。
 
 MIT permission notice:
 

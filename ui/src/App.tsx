@@ -174,7 +174,7 @@ export function App() {
     void dashboard.refetch();
   };
   const pageCopy: Record<PageId, { eyebrow: string; title: string; description: string }> = {
-    overview: { eyebrow: 'CODEX USAGE · OFFLINE FIRST', title: t('本地用量总览'), description: t('直接读取本机 Codex 数据；原始消息与工具参数不会进入分析库。') },
+    overview: { eyebrow: 'CHRONOLUME · LOCAL FIRST', title: t('本地用量总览'), description: t('直接读取本机 Codex 数据；原始消息与工具参数不会进入分析库。') },
     projects: { eyebrow: 'WORKSPACES', title: t('项目与工作区'), description: t('按真实工作区汇总 Token、成本、活跃时间和会话。') },
     sessions: { eyebrow: 'SESSIONS', title: t('会话与事件'), description: t('只显示结构化统计；最近 90 天 Token 事件由服务端分页保留。') },
     models: { eyebrow: 'MODELS & PRICING', title: t('模型与成本'), description: t('检查模型分布、未定价事件和本地价格覆盖。') },
@@ -192,7 +192,7 @@ export function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label={t('主导航')}>
-        <div className="brand-mark" aria-hidden="true">CU</div>
+        <div className="brand-mark" aria-hidden="true">CL</div>
         <nav>
           <NavButton icon={<BarChart3 />} label={t('总览')} active={activePage === 'overview'} onSelect={() => setActivePage('overview')} />
           <NavButton icon={<LayoutDashboard />} label={t('项目')} active={activePage === 'projects'} onSelect={() => setActivePage('projects')} />
@@ -298,7 +298,7 @@ export function App() {
         </Suspense>
 
         <footer className="app-footer">
-          <span>Codex Usage {bootstrap.data?.appVersion ?? '2.0.0'}</span>
+          <span>Chronolume {bootstrap.data?.appVersion ?? '2.0.1'}</span>
           <span>Schema v{bootstrap.data?.schemaVersion ?? '…'}</span>
           <span>{formatBytes(bootstrap.data?.databaseSizeBytes ?? 0)} {t('本地索引')}</span>
           {dashboard.isFetching && <span className="footer-refreshing">{t('正在刷新查询')}</span>}

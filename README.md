@@ -1,6 +1,8 @@
-# Codex Usage 2.0
+# Chronolume
 
-Codex Usage 是面向 OpenAI Codex 的 Windows 本地用量分析应用。2.0 使用 Tauri 2、Rust、React、TypeScript 与 Vite 重写，直接在后台增量索引 `~/.codex`，不依赖代理或云服务。
+> Illuminate the rhythm of your work.
+
+Chronolume 是面向 OpenAI Codex 的 Windows 本地活动、用量与成本分析应用。2.0 使用 Tauri 2、Rust、React、TypeScript 与 Vite 构建，直接在后台增量索引 `~/.codex`，不依赖代理或云服务。
 
 ## 隐私边界
 
@@ -56,7 +58,7 @@ cargo test
 
 ```powershell
 Set-Location src-tauri
-cargo run --release --bin usage-benchmark -- "$HOME\.codex" "$env:LOCALAPPDATA\CodexUsage\benchmarks\fresh.sqlite3"
+cargo run --release --bin usage-benchmark -- "$HOME\.codex" "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 ```
 
 benchmark 只读取 `~/.codex`，分析库写到显式指定路径。目标和实测结果见 [docs/performance.md](docs/performance.md)。
@@ -70,7 +72,7 @@ npm run tauri:build
 NSIS 安装器与 Release EXE 位于 `src-tauri/target/release`；最终交付同时提供便携 ZIP。产物路径、哈希和 smoke test 见 [docs/packaging.md](docs/packaging.md)。应用数据保存在：
 
 ```text
-%LOCALAPPDATA%\CodexUsage\v2\codex-usage-v2.sqlite3
+%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3
 ```
 
 2.0 不迁移 1.x 缓存或设置，详见 [docs/migration-and-cleanup.md](docs/migration-and-cleanup.md)。

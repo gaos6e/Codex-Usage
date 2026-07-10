@@ -1,6 +1,6 @@
-# Codex Usage 2.0 功能边界
+# Chronolume 2.0 功能边界
 
-Codex Usage 是仅面向 OpenAI Codex 的 Windows 本地用量分析应用。它不实现代理、请求拦截、账号、多账号、在线配额、会话正文搜索、后台价格更新或应用自动更新。
+Chronolume 是仅面向 OpenAI Codex 的 Windows 本地活动、用量与成本分析应用。它不实现代理、请求拦截、账号、多账号、在线配额、会话正文搜索、后台价格更新或应用自动更新。
 
 已交付界面包括：
 

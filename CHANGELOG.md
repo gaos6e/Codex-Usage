@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.1 — 2026-07-11
+
+- 产品品牌由 Codex Usage 统一更名为 Chronolume。
+- 应用标题、EXE、安装目录、NSIS 安装器、便携包、快捷方式、导出文件名、文档和 GitHub 仓库采用同一名称。
+- 分析库迁移到 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`；首次启动自动移动 2.0.0 数据库及 WAL sidecar，不重新索引或丢失设置。
+- 浏览器偏好键迁移到 `chronolume.*` 命名空间；保留稳定的内部 bundle identifier，以确保安装升级和 WebView 偏好连续。
+
 ## 2.0.0 — 2026-07-11
 
 - 全面迁移到 Tauri 2 + Rust + React + TypeScript + Vite。

@@ -3,12 +3,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use codex_usage_lib::indexer::{SyncMode, UsageIndexer, system_timezone};
-use codex_usage_lib::query::{
-    ArchiveFilter, RangePreset, RangeSelection, UsageFilters, UsageQuery,
-};
-use codex_usage_lib::source::FsCodexSource;
-use codex_usage_lib::store::UsageStore;
+use chronolume_lib::indexer::{SyncMode, UsageIndexer, system_timezone};
+use chronolume_lib::query::{ArchiveFilter, RangePreset, RangeSelection, UsageFilters, UsageQuery};
+use chronolume_lib::source::FsCodexSource;
+use chronolume_lib::store::UsageStore;
 use serde::Serialize;
 
 #[derive(Serialize)]

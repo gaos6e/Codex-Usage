@@ -5,9 +5,11 @@ param()
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$releaseExe = Join-Path $repoRoot 'src-tauri\target\release\codex-usage.exe'
+$tauriConfig = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'src-tauri\tauri.conf.json') | ConvertFrom-Json
+$version = $tauriConfig.version
+$releaseExe = Join-Path $repoRoot 'src-tauri\target\release\chronolume.exe'
 $portableDir = Join-Path $repoRoot 'src-tauri\target\release\bundle\portable'
-$archivePath = Join-Path $portableDir 'Codex-Usage-2.0.0-windows-x64-portable.zip'
+$archivePath = Join-Path $portableDir "Chronolume-$version-windows-x64-portable.zip"
 $readme = Join-Path $repoRoot 'README.md'
 $notices = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
 

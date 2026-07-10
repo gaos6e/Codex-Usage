@@ -1,4 +1,4 @@
-# ADR 0001：Codex Usage 2.0 离线分析架构
+# ADR 0001：Chronolume 2.0 离线分析架构
 
 - 状态：已接受
 - 日期：2026-07-10
@@ -30,7 +30,7 @@
 
 ## Schema
 
-v2 分析库独立放在 `%LOCALAPPDATA%\CodexUsage\v2\codex-usage-v2.sqlite3`，至少包含：
+v2 分析库独立放在 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，至少包含：
 
 - `schema_migrations`、`source_files`、`sync_runs`
 - `workspaces`、`sessions`

@@ -20,7 +20,7 @@ export function ExportControls({ scope, filters, allowPng }: ExportControlsProps
   const exportStructured = async () => {
     if (!scope || !isTauriRuntime()) return;
     const path = await save({
-      defaultPath: `codex-usage-${scope}-${dateStamp()}.${format}`,
+      defaultPath: `chronolume-${scope}-${dateStamp()}.${format}`,
       filters: [{ name: format.toUpperCase(), extensions: [format] }],
     });
     if (!path) return;
@@ -37,7 +37,7 @@ export function ExportControls({ scope, filters, allowPng }: ExportControlsProps
     const svg = document.querySelector<SVGSVGElement>('.chart-card .recharts-surface');
     if (!svg) return;
     const path = await save({
-      defaultPath: `codex-usage-dashboard-${dateStamp()}.png`,
+      defaultPath: `chronolume-dashboard-${dateStamp()}.png`,
       filters: [{ name: 'PNG', extensions: ['png'] }],
     });
     if (!path) return;

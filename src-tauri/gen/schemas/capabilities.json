@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Capabilities for the Codex Usage main window","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-set-theme","dialog:default"]}}
+{"default":{"identifier":"default","description":"Capabilities for the Chronolume main window","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-set-theme","dialog:default"]}}

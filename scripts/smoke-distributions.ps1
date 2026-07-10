@@ -8,11 +8,13 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$tauriConfig = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'src-tauri\tauri.conf.json') | ConvertFrom-Json
+$version = $tauriConfig.version
 if (-not $InstallerPath) {
-  $InstallerPath = Join-Path $repoRoot 'src-tauri\target\release\bundle\nsis\Codex Usage_2.0.0_x64-setup.exe'
+  $InstallerPath = Join-Path $repoRoot "src-tauri\target\release\bundle\nsis\Chronolume_${version}_x64-setup.exe"
 }
 if (-not $PortableArchive) {
-  $PortableArchive = Join-Path $repoRoot 'src-tauri\target\release\bundle\portable\Codex-Usage-2.0.0-windows-x64-portable.zip'
+  $PortableArchive = Join-Path $repoRoot "src-tauri\target\release\bundle\portable\Chronolume-$version-windows-x64-portable.zip"
 }
 
 $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
@@ -24,9 +26,9 @@ if (-not $smokeDir.StartsWith($portablePrefix, [System.StringComparison]::Ordina
   throw "Refusing to use smoke directory outside portable output: $smokeDir"
 }
 
-$existing = @(Get-Process -Name 'codex-usage' -ErrorAction SilentlyContinue)
+$existing = @(Get-Process -Name 'chronolume' -ErrorAction SilentlyContinue)
 if ($existing.Count -gt 0) {
-  throw 'Close existing Codex Usage processes before running distribution smoke tests.'
+  throw 'Close existing Chronolume processes before running distribution smoke tests.'
 }
 
 function Test-AppWindow {
@@ -94,7 +96,7 @@ if ($installer.ExitCode -ne 0) {
   throw "NSIS installer exited with code $($installer.ExitCode)."
 }
 
-$installedExe = Join-Path $env:LOCALAPPDATA 'Codex Usage\codex-usage.exe'
+$installedExe = Join-Path $env:LOCALAPPDATA 'Chronolume\chronolume.exe'
 if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
   throw "Installed executable is missing: $installedExe"
 }
@@ -105,12 +107,12 @@ New-Item -ItemType Directory -Path $smokeDir | Out-Null
 
 try {
   Expand-Archive -LiteralPath $PortableArchive -DestinationPath $smokeDir
-  foreach ($name in @('codex-usage.exe', 'README.md', 'THIRD_PARTY_NOTICES.md')) {
+  foreach ($name in @('chronolume.exe', 'README.md', 'THIRD_PARTY_NOTICES.md')) {
     if (-not (Test-Path -LiteralPath (Join-Path $smokeDir $name) -PathType Leaf)) {
       throw "Portable archive entry is missing: $name"
     }
   }
-  $portableResult = Test-AppWindow -Executable (Join-Path $smokeDir 'codex-usage.exe')
+  $portableResult = Test-AppWindow -Executable (Join-Path $smokeDir 'chronolume.exe')
 } finally {
   Remove-SmokeDirectory
 }

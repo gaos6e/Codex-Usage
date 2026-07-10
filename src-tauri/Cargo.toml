@@ -1,19 +1,19 @@
 [package]
-name = "codex-usage"
-version = "2.0.0"
-description = "Offline-first local Codex usage analytics"
+name = "chronolume"
+version = "2.0.1"
+description = "Private, offline-first insight into local Codex activity, usage, and cost"
 authors = ["gaos6e"]
 license = "MIT"
 edition = "2024"
 rust-version = "1.85"
-default-run = "codex-usage"
+default-run = "chronolume"
 
 [lib]
-name = "codex_usage_lib"
+name = "chronolume_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
-name = "codex-usage"
+name = "chronolume"
 path = "src/main.rs"
 
 [[bin]]

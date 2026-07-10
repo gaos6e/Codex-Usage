@@ -1,9 +1,10 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { readLocalPreference, storageKeys, writeLocalPreference } from './storage';
 
 export type ThemePreference = 'system' | 'dark' | 'light';
 
 export function readThemePreference(): ThemePreference {
-  const stored = localStorage.getItem('codex-usage.theme');
+  const stored = readLocalPreference(storageKeys.theme);
   return stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'system';
 }
 
@@ -16,7 +17,7 @@ export function resolveTheme(preference: ThemePreference): 'dark' | 'light' {
 }
 
 export function applyThemePreference(preference: ThemePreference): void {
-  localStorage.setItem('codex-usage.theme', preference);
+  writeLocalPreference(storageKeys.theme, preference);
   document.documentElement.dataset.theme = resolveTheme(preference);
   if ('__TAURI_INTERNALS__' in window) {
     void getCurrentWindow().setTheme(preference === 'system' ? null : preference);

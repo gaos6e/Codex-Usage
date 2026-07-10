@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Codex Usage",
-  "version": "2.0.0",
+  "productName": "Chronolume",
+  "version": "2.0.1",
   "identifier": "com.gaos6e.codexusage",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Codex Usage",
+        "title": "Chronolume",
         "width": 1280,
         "height": 800,
         "minWidth": 1100,
@@ -31,8 +31,8 @@
     "active": true,
     "targets": ["nsis"],
     "category": "Utility",
-    "shortDescription": "Offline Codex usage analytics",
-    "longDescription": "High-performance, private and offline-first analytics for local OpenAI Codex usage data.",
+    "shortDescription": "Illuminate your local Codex activity",
+    "longDescription": "Private, high-performance and offline-first insight into local OpenAI Codex activity, usage and cost.",
     "copyright": "Copyright © 2026 gaos6e",
     "windows": {
       "nsis": {

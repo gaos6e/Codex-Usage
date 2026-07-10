@@ -1,6 +1,6 @@
 # 性能基线与验收
 
-测试日期为 2026-07-10，Windows 机器、Release 构建、真实 `%USERPROFILE%\.codex` 只读数据。首次编译时间不计入应用指标；benchmark 数据库仅写入 `%LOCALAPPDATA%\CodexUsage\benchmarks`，不进入 Git。
+测试日期为 2026-07-10，Windows 机器、Release 构建、真实 `%USERPROFILE%\.codex` 只读数据。首次编译时间不计入应用指标；benchmark 数据库仅写入 `%LOCALAPPDATA%\Chronolume\benchmarks`，不进入 Git。
 
 ## 数据规模
 
@@ -24,18 +24,18 @@
 ## 可重复命令
 
 ```powershell
-Set-Location D:\codex-usage-windows-app\src-tauri
+Set-Location .\src-tauri
 
 cargo run --release --bin usage-benchmark -- `
   "$HOME\.codex" `
-  "$env:LOCALAPPDATA\CodexUsage\benchmarks\fresh.sqlite3"
+  "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 
 cargo run --release --bin query-benchmark -- `
-  "$env:LOCALAPPDATA\CodexUsage\benchmarks\fresh.sqlite3"
+  "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 
 cargo run --release --bin incremental-benchmark -- `
   "$HOME\.codex" `
-  "$env:LOCALAPPDATA\CodexUsage\benchmarks\fresh.sqlite3"
+  "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 ```
 
 `usage-benchmark` 拒绝覆盖已有数据库；`incremental-benchmark` 只读源目录，只更新显式指定的分析库。内存通过 100 ms 间隔采样 Release 进程；启动通过轮询 Tauri 主窗口句柄并结合首个 Dashboard 查询测量。

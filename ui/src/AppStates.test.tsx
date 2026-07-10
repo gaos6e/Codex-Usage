@@ -59,7 +59,7 @@ describe('App data states', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     await i18n.changeLanguage('zh-CN');
-    api.getBootstrapStatus.mockResolvedValue({ appVersion: '2.0.0', databasePath: '', schemaVersion: 1, databaseSizeBytes: 0 });
+    api.getBootstrapStatus.mockResolvedValue({ appVersion: '2.0.1', databasePath: '', schemaVersion: 1, databaseSizeBytes: 0 });
     api.getSyncStatus.mockResolvedValue({
       phase: 'idle', filesTotal: 0, filesCompleted: 0, bytesTotal: 0, bytesRead: 0,
       recordsWritten: 0, recordsSkipped: 0, parseFailures: 0, fileErrors: 0,

@@ -1,4 +1,4 @@
-# Codex Usage 2.0 架构
+# Chronolume 2.0 架构
 
 2.0 使用 Tauri 2、Rust、React、TypeScript 和 Vite，面向 OpenAI Codex 本地数据，离线优先且不实现代理、账号或在线配额。
 

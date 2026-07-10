@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 [CmdletBinding()]
 param(
-  [string]$Executable = (Join-Path $env:LOCALAPPDATA 'Codex Usage\codex-usage.exe'),
-  [string]$OutputPath = (Join-Path $PSScriptRoot '..\docs\images\codex-usage-dashboard.png')
+  [string]$Executable = (Join-Path $env:LOCALAPPDATA 'Chronolume\chronolume.exe'),
+  [string]$OutputPath = (Join-Path $PSScriptRoot '..\docs\images\chronolume-dashboard.png')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,8 +10,8 @@ $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
   throw "Installed executable is missing: $Executable"
 }
-if (@(Get-Process -Name 'codex-usage' -ErrorAction SilentlyContinue).Count -gt 0) {
-  throw 'Close existing Codex Usage processes before capturing the dashboard.'
+if (@(Get-Process -Name 'chronolume' -ErrorAction SilentlyContinue).Count -gt 0) {
+  throw 'Close existing Chronolume processes before capturing the dashboard.'
 }
 
 Add-Type @'
@@ -32,12 +32,12 @@ try {
     Start-Sleep -Milliseconds 50
     $process.Refresh()
     if ($process.HasExited) {
-      throw 'Codex Usage exited before the dashboard opened.'
+      throw 'Chronolume exited before the dashboard opened.'
     }
   } while ($process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
 
   if ($process.MainWindowHandle -eq 0) {
-    throw 'Codex Usage did not open a window within 15 seconds.'
+    throw 'Chronolume did not open a window within 15 seconds.'
   }
 
   [WindowShowNative]::ShowWindow($process.MainWindowHandle, 3) | Out-Null

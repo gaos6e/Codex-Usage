@@ -1,6 +1,6 @@
-# Codex Usage 2.0 数据模型
+# Chronolume 2.0 数据模型
 
-v2 分析数据库位于 `%LOCALAPPDATA%\CodexUsage\v2\codex-usage-v2.sqlite3`，与旧 Electron 缓存隔离。数据库仅存结构化统计和恢复索引所需元数据，不存会话正文、工具参数、命令或代码。
+v2 分析数据库位于 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，与旧 Electron 缓存隔离。数据库仅存结构化统计和恢复索引所需元数据，不存会话正文、工具参数、命令或代码。2.0.1 首次启动会迁移旧品牌目录中的 2.0.0 数据库及 WAL sidecar，并可从部分完成的文件改名继续。
 
 | 表 | 保留期 | 主要职责 |
 | --- | --- | --- |

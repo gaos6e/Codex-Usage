@@ -1,5 +1,6 @@
 import { createInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { readLocalPreference, storageKeys } from './lib/storage';
 
 const english: Record<string, string> = {
   '主导航': 'Main navigation', '用量汇总': 'Usage summary', '用量趋势': 'Usage trend', '未定价': 'Unpriced',
@@ -59,7 +60,7 @@ const english: Record<string, string> = {
   '正在聚合每日活动…': 'Aggregating daily activity…', '少': 'Less', '多': 'More',
   '主题': 'Theme', '暗色、浅色或跟随 Windows': 'Dark, light, or follow Windows', '系统': 'System',
   '暗色': 'Dark', '浅色': 'Light', '语言': 'Language', '界面语言偏好': 'Interface language',
-  '字体缩放': 'Font scale', '高性能、离线优先的 OpenAI Codex 本地用量分析。应用不会读取 auth.json、在线配额或对话正文；价格更新是唯一可选网络能力，且只在用户明确触发后执行。': 'High-performance, offline-first local analytics for OpenAI Codex. The app never reads auth.json, online quotas, or conversation content. Price updates are the only optional network feature and run only after an explicit user action.',
+  '字体缩放': 'Font scale', 'Chronolume 照亮本机 Codex 活动中的 Token、成本与时间脉络。应用不会读取 auth.json、在线配额或对话正文；价格更新是唯一可选网络能力，且只在用户明确触发后执行。': 'Chronolume illuminates tokens, cost, and time across local Codex activity. The app never reads auth.json, online quotas, or conversation content. Price updates are the only optional network feature and run only after an explicit user action.',
   '最近活动': 'Recent activity', '成本': 'Cost', '名称': 'Name', '活跃': 'Active',
   '编辑工作区': 'Edit workspace', '没有匹配的工作区。': 'No matching workspaces.',
   '打开工作区统计': 'Open workspace analytics',
@@ -91,14 +92,14 @@ const english: Record<string, string> = {
   '缓存写入（可选）': 'Cache write (optional)', '保存并重算': 'Save and reprice',
   '工具调用': 'Tool calls', '不同工具': 'Distinct tools', '结构化类别': 'Structured categories',
   '原始命令': 'Raw commands', '不落库': 'Not stored', '读写与执行': 'Read, write & execute',
-  'Top 工具': 'Top tools', '每日工具调用': 'Daily tool calls', '仅清空 Codex Usage v2 分析库。~/.codex 原始数据不会被修改。是否继续？': 'Clear only the Codex Usage v2 analytics database? Original ~/.codex data will not be modified.',
+  'Top 工具': 'Top tools', '每日工具调用': 'Daily tool calls', '仅清空 Chronolume v2 分析库。~/.codex 原始数据不会被修改。是否继续？': 'Clear only the Chronolume v2 analytics database? Original ~/.codex data will not be modified.',
   '数据库完整性': 'Database integrity', '正常': 'Healthy', '异常': 'Error',
   '分析库大小': 'Analytics database size', '已索引会话': 'Indexed sessions',
   '数据源能力与索引': 'Source capabilities & indexing', '就绪': 'ready', '错误': 'errors',
   '不可用或尚未检测': 'Unavailable or not yet detected',
   '尚未生成数据源检查点。': 'No source checkpoints yet.', '索引维护': 'Index maintenance',
   '增量同步': 'Incremental sync', '重新索引': 'Reindex', '清空分析库': 'Clear analytics database',
-  '这些操作只写入 %LOCALAPPDATA%\\CodexUsage\\v2；不会写入、移动或删除 ~/.codex。': 'These actions write only to %LOCALAPPDATA%\\CodexUsage\\v2 and never write, move, or delete ~/.codex.',
+  '这些操作只写入 %LOCALAPPDATA%\\Chronolume\\v2；不会写入、移动或删除 ~/.codex。': 'These actions write only to %LOCALAPPDATA%\\Chronolume\\v2 and never write, move, or delete ~/.codex.',
   '最近同步与性能': 'Recent syncs & performance', '模式': 'Mode', '状态': 'Status',
   '读取': 'Read', '跳过': 'Skipped', '耗时': 'Elapsed', '解析失败': 'Parse failures',
   '正在加载页面数据…': 'Loading page data…', '无法读取页面数据': 'Unable to load page data',
@@ -108,7 +109,7 @@ const english: Record<string, string> = {
   '分钟': 'minutes',
 };
 
-const storedLanguage = localStorage.getItem('codex-usage.language');
+const storedLanguage = readLocalPreference(storageKeys.language);
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({
   resources: {

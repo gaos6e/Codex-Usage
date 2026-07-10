@@ -438,8 +438,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-usage"
-version = "2.0.0"
+name = "chronolume"
+version = "2.0.1"
 dependencies = [
  "blake3",
  "chrono",
