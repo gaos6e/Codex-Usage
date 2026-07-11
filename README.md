@@ -4,6 +4,33 @@
 
 Chronolume 是面向 OpenAI Codex 的 Windows 本地活动、用量与成本分析应用。2.0 使用 Tauri 2、Rust、React、TypeScript 与 Vite 构建，直接在后台增量索引 `~/.codex`，不依赖代理或云服务。
 
+## 应用预览
+
+<p align="center">
+  <a href="docs/images/chronolume-dashboard.png">
+    <img src="docs/images/chronolume-dashboard.png" alt="Chronolume 本地用量总览" width="100%">
+  </a>
+</p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/images/chronolume-models.png">
+        <img src="docs/images/chronolume-models.png" alt="Chronolume 模型与成本分析" width="100%">
+      </a>
+      <br>
+      <sub><b>模型与成本</b> · 模型分布、缓存命中率与本地价格覆盖</sub>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/images/chronolume-activity.png">
+        <img src="docs/images/chronolume-activity.png" alt="Chronolume 工具与活动分析" width="100%">
+      </a>
+      <br>
+      <sub><b>工具与活动</b> · 每日调用趋势与隐私友好的结构化分类</sub>
+    </td>
+  </tr>
+</table>
+
 ## 隐私边界
 
 - 不查询或保存提示词、助手回复、标题、预览、首条用户消息、代码或命令正文。
