@@ -16,7 +16,6 @@ fail() {
 [ -n "$dmg" ] || fail "macOS DMG is missing under: $bundle_root/dmg"
 [ -f "$app/Contents/Info.plist" ] || fail "Info.plist is missing from the app bundle."
 [ -f "$app/Contents/MacOS/chronolume" ] || fail "The Chronolume app executable is missing."
-[ -f "$app/Contents/Resources/icon.icns" ] || fail "The app icon is missing from Contents/Resources."
 
 binary="$app/Contents/MacOS/chronolume"
 bundled_executables="$(find "$app/Contents/MacOS" -maxdepth 1 -type f -exec basename {} \; | sort)"
@@ -29,10 +28,12 @@ bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")"
 version="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
 minimum_system="$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")"
 bundle_name="$(plutil -extract CFBundleName raw "$app/Contents/Info.plist")"
+bundle_icon="$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")"
 [ "$bundle_id" = "com.gaos6e.chronolume" ] || fail "Unexpected CFBundleIdentifier: $bundle_id"
 [ "$version" = "2.1.0" ] || fail "Unexpected CFBundleShortVersionString: $version"
 [ "$minimum_system" = "12.0" ] || fail "Unexpected LSMinimumSystemVersion: $minimum_system"
 [ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleName: $bundle_name"
+[ -f "$app/Contents/Resources/$bundle_icon" ] || fail "CFBundleIconFile does not resolve inside Contents/Resources: $bundle_icon"
 
 if find "$app" -type f \( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' -o -name '*.log' -o -name 'auth.json' \) -print -quit | grep -q .; then
   echo "A database, log, or credential file was bundled into the app." >&2
@@ -57,9 +58,9 @@ trap cleanup EXIT
 
 hdiutil attach -readonly -nobrowse -mountpoint "$mount_root" "$dmg" >/dev/null
 mounted_app="$mount_root/Chronolume.app"
-test -f "$mounted_app/Contents/MacOS/chronolume"
-test -f "$mounted_app/Contents/Info.plist"
-test ! -e "$smoke_home/.codex"
+[ -f "$mounted_app/Contents/MacOS/chronolume" ] || fail "Mounted DMG is missing the Chronolume executable."
+[ -f "$mounted_app/Contents/Info.plist" ] || fail "Mounted DMG is missing the app Info.plist."
+[ ! -e "$smoke_home/.codex" ] || fail "Temporary smoke HOME unexpectedly contains .codex before launch."
 
 HOME="$smoke_home" "$mounted_app/Contents/MacOS/chronolume" >"$smoke_log" 2>&1 &
 pid=$!
@@ -72,8 +73,8 @@ for _ in $(seq 1 12); do
   sleep 0.25
 done
 expected_database="$smoke_home/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3"
-test -f "$expected_database"
-test ! -e "$smoke_home/Library/Application Support/com.gaos6e.chronolume"
+[ -f "$expected_database" ] || fail "Launch smoke did not create the expected analytics database: $expected_database"
+[ ! -e "$smoke_home/Library/Application Support/com.gaos6e.chronolume" ] || fail "Analytics data was incorrectly nested under the bundle identifier."
 kill -TERM "$pid"
 for _ in $(seq 1 20); do
   if ! kill -0 "$pid" 2>/dev/null; then
