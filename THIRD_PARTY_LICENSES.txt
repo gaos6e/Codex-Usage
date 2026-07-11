@@ -6,7 +6,7 @@ and license files shipped in the resolved package archives. Do not edit it by ha
 Cargo target audit: x86_64-pc-windows-msvc
 npm production packages: 55
 Cargo resolved packages: 340
-package-lock.json SHA-256: E3F76BBAFE4F29976F051F90FDB01CC0FC026259CCCC0A7D2BC1398A48C8BEA8
+package-lock.json SHA-256: 44C939F0C2230758F291BE48FE342CCA0CC55DD2A5BA14A47FF9EB5ED61FE379
 Cargo.lock SHA-256: 500A735167096C5D0630223B8719B9157ABF7EBD2D4BBD8596D44EE735543F01
 
 PACKAGE INVENTORY
