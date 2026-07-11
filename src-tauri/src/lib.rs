@@ -209,7 +209,7 @@ fn configure_macos_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tau
 }
 
 #[cfg(target_os = "macos")]
-fn show_main_window(app: &tauri::AppHandle) {
+fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
