@@ -12,6 +12,12 @@ fail() {
   exit 1
 }
 
+plist_value() {
+  local key="$1"
+  local plist="$2"
+  plutil -extract "$key" raw "$plist" || fail "Info.plist is missing required key: $key"
+}
+
 [ -d "$app" ] || fail "macOS app bundle is missing: $app"
 [ -n "$dmg" ] || fail "macOS DMG is missing under: $bundle_root/dmg"
 [ -f "$app/Contents/Info.plist" ] || fail "Info.plist is missing from the app bundle."
@@ -24,15 +30,17 @@ archs="$(lipo -archs "$binary")"
 case " $archs " in *" arm64 "*) ;; *) echo "arm64 slice missing: $archs" >&2; exit 1 ;; esac
 case " $archs " in *" x86_64 "*) ;; *) echo "x86_64 slice missing: $archs" >&2; exit 1 ;; esac
 
-bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")"
-version="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
-minimum_system="$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")"
-bundle_name="$(plutil -extract CFBundleName raw "$app/Contents/Info.plist")"
-bundle_icon="$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist")"
+bundle_id="$(plist_value CFBundleIdentifier "$app/Contents/Info.plist")"
+version="$(plist_value CFBundleShortVersionString "$app/Contents/Info.plist")"
+minimum_system="$(plist_value LSMinimumSystemVersion "$app/Contents/Info.plist")"
+bundle_name="$(plist_value CFBundleDisplayName "$app/Contents/Info.plist")"
+bundle_executable="$(plist_value CFBundleExecutable "$app/Contents/Info.plist")"
+bundle_icon="$(plist_value CFBundleIconFile "$app/Contents/Info.plist")"
 [ "$bundle_id" = "com.gaos6e.chronolume" ] || fail "Unexpected CFBundleIdentifier: $bundle_id"
 [ "$version" = "2.1.0" ] || fail "Unexpected CFBundleShortVersionString: $version"
 [ "$minimum_system" = "12.0" ] || fail "Unexpected LSMinimumSystemVersion: $minimum_system"
-[ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleName: $bundle_name"
+[ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleDisplayName: $bundle_name"
+[ "$bundle_executable" = "chronolume" ] || fail "Unexpected CFBundleExecutable: $bundle_executable"
 [ -f "$app/Contents/Resources/$bundle_icon" ] || fail "CFBundleIconFile does not resolve inside Contents/Resources: $bundle_icon"
 
 if find "$app" -type f \( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' -o -name '*.log' -o -name 'auth.json' \) -print -quit | grep -q .; then
