@@ -35,13 +35,19 @@ version="$(plist_value CFBundleShortVersionString "$app/Contents/Info.plist")"
 minimum_system="$(plist_value LSMinimumSystemVersion "$app/Contents/Info.plist")"
 bundle_name="$(plist_value CFBundleDisplayName "$app/Contents/Info.plist")"
 bundle_executable="$(plist_value CFBundleExecutable "$app/Contents/Info.plist")"
-bundle_icon="$(plist_value CFBundleIconFile "$app/Contents/Info.plist")"
 [ "$bundle_id" = "com.gaos6e.chronolume" ] || fail "Unexpected CFBundleIdentifier: $bundle_id"
 [ "$version" = "2.1.0" ] || fail "Unexpected CFBundleShortVersionString: $version"
 [ "$minimum_system" = "12.0" ] || fail "Unexpected LSMinimumSystemVersion: $minimum_system"
 [ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleDisplayName: $bundle_name"
 [ "$bundle_executable" = "chronolume" ] || fail "Unexpected CFBundleExecutable: $bundle_executable"
-[ -f "$app/Contents/Resources/$bundle_icon" ] || fail "CFBundleIconFile does not resolve inside Contents/Resources: $bundle_icon"
+if bundle_icon="$(plutil -extract CFBundleIconFile raw "$app/Contents/Info.plist" 2>/dev/null)"; then
+  [ -f "$app/Contents/Resources/$bundle_icon" ] || fail "CFBundleIconFile does not resolve inside Contents/Resources: $bundle_icon"
+elif bundle_icon="$(plutil -extract CFBundleIconName raw "$app/Contents/Info.plist" 2>/dev/null)"; then
+  [ -n "$bundle_icon" ] || fail "CFBundleIconName is empty."
+  [ -f "$app/Contents/Resources/Assets.car" ] || fail "CFBundleIconName is set but Resources/Assets.car is missing."
+else
+  fail "Info.plist has neither CFBundleIconFile nor CFBundleIconName."
+fi
 
 if find "$app" -type f \( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' -o -name '*.log' -o -name 'auth.json' \) -print -quit | grep -q .; then
   echo "A database, log, or credential file was bundled into the app." >&2
