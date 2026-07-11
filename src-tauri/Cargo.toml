@@ -1,6 +1,6 @@
 [package]
 name = "chronolume"
-version = "2.0.1"
+version = "2.1.0"
 description = "Private, offline-first insight into local Codex activity, usage, and cost"
 authors = ["gaos6e"]
 license = "MIT"

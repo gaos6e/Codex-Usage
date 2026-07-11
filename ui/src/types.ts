@@ -137,6 +137,8 @@ export interface SyncStatus {
 
 export interface BootstrapStatus {
   appVersion: string;
+  platform: 'windows' | 'macos' | 'linux' | string;
+  dataDirectory: string;
   databasePath: string;
   schemaVersion: number;
   databaseSizeBytes: number;

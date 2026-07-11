@@ -1,5 +1,11 @@
 # 性能基线与验收
 
+## 证据边界
+
+- 下列已有数字全部来自 Windows 真机与真实 `~/.codex` 数据，不能外推为 macOS 结论。
+- macOS GitHub runner 只用于编译、测试、Universal 包静态检查和无 `~/.codex` 启动 smoke；首个成功工作流后应把 runner 型号、macOS 版本和结果记录在本节，但仍不得称为真实用户性能。
+- 当前尚无 Apple Silicon 或 Intel Mac 的真实用户数据 benchmark。该项属于正式发布前的外部真机验收，不足以证明前不得写“macOS 性能已达标”。
+
 测试日期为 2026-07-10，Windows 机器、Release 构建、真实 `%USERPROFILE%\.codex` 只读数据。首次编译时间不计入应用指标；benchmark 数据库仅写入 `%LOCALAPPDATA%\Chronolume\benchmarks`，不进入 Git。
 
 ## 数据规模

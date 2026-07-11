@@ -1,0 +1,14 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "identifier": "com.gaos6e.codexusage",
+  "bundle": {
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": ["SimpChinese", "English"]
+      }
+    }
+  }
+}

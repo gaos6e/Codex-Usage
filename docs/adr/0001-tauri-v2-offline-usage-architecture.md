@@ -30,7 +30,7 @@
 
 ## Schema
 
-v2 分析库独立放在 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，至少包含：
+v2 分析库在 Windows 放在 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，在 macOS 放在 `~/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3`，至少包含：
 
 - `schema_migrations`、`source_files`、`sync_runs`
 - `workspaces`、`sessions`

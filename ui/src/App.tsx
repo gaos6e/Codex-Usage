@@ -125,6 +125,9 @@ export function App() {
       listen('usage-sync-failed', () => {
         void queryClient.invalidateQueries({ queryKey: ['sync-status'] });
       }),
+      listen('chronolume-open-settings', () => {
+        setActivePage('settings');
+      }),
     ]);
     return () => {
       void unlisten.then((listeners) => listeners.forEach((stop) => stop()));
@@ -149,7 +152,7 @@ export function App() {
   const snapshot = dashboard.data;
   const syncing = ACTIVE_SYNC_PHASES.has(sync.data?.phase ?? '');
   const stale = snapshot != null && Date.now() - snapshot.generatedAtMs > 5 * 60_000;
-  const noticeKind = snapshot?.dataState === 'partial' ? 'partial' : stale ? 'stale' : undefined;
+  const noticeKind = stale ? 'stale' : undefined;
   const visibleWorkspaceIds = preferences.data?.visibleWorkspaceIds ?? [];
   const visibleWorkspaceOptions = useMemo(() => {
     const visible = new Set(visibleWorkspaceIds);
@@ -243,9 +246,7 @@ export function App() {
           <>
             {noticeKind && dismissedNotice !== noticeKind && (
               <div className="data-notice" role="status">
-                <span>{noticeKind === 'partial'
-                  ? t('部分会话缺少完整 Token 或生命周期记录；当前仅展示可验证的真实数据。')
-                  : t('展示的是上次生成的快照，后台正在刷新。')}</span>
+                <span>{t('展示的是上次生成的快照，后台正在刷新。')}</span>
                 <button type="button" aria-label={t('关闭提示')} onClick={() => setDismissedNotice(noticeKind)}><X /></button>
               </div>
             )}
@@ -298,7 +299,7 @@ export function App() {
         </Suspense>
 
         <footer className="app-footer">
-          <span>Chronolume {bootstrap.data?.appVersion ?? '2.0.1'}</span>
+          <span>Chronolume {bootstrap.data?.appVersion ?? '2.1.0'}</span>
           <span>Schema v{bootstrap.data?.schemaVersion ?? '…'}</span>
           <span>{formatBytes(bootstrap.data?.databaseSizeBytes ?? 0)} {t('本地索引')}</span>
           {dashboard.isFetching && <span className="footer-refreshing">{t('正在刷新查询')}</span>}

@@ -10,6 +10,7 @@ import { ProjectsPage } from './projects/ProjectsPage';
 import { SessionsPage } from './sessions/SessionsPage';
 
 const api = vi.hoisted(() => ({
+  getBootstrapStatus: vi.fn(),
   getWorkspaces: vi.fn(),
   updateWorkspaceSettings: vi.fn(),
   getSessions: vi.fn(),
@@ -51,6 +52,12 @@ describe('feature pages', () => {
     vi.clearAllMocks();
     await i18n.changeLanguage('zh-CN');
     api.updateWorkspaceSettings.mockResolvedValue(undefined);
+    api.getBootstrapStatus.mockResolvedValue({
+      appVersion: '2.1.0', platform: 'windows',
+      dataDirectory: 'C:\\Users\\tester\\AppData\\Local\\Chronolume\\v2',
+      databasePath: 'C:\\Users\\tester\\AppData\\Local\\Chronolume\\v2\\chronolume-v2.sqlite3',
+      schemaVersion: 1, databaseSizeBytes: 1024,
+    });
     api.saveModelPrice.mockResolvedValue({ prices: [], reprice: {} });
     api.deleteModelPrice.mockResolvedValue({ prices: [], reprice: {} });
     api.restoreBuiltinPrice.mockResolvedValue({ prices: [], reprice: {} });
@@ -191,5 +198,25 @@ describe('feature pages', () => {
     renderPage(<DataPage />);
     fireEvent.click(await screen.findByRole('button', { name: '修复索引' }));
     await waitFor(() => expect(api.startSync).toHaveBeenCalledWith('repair'));
+  });
+
+  it('renders the backend-provided analytics directory for Windows and macOS', async () => {
+    api.getDiagnostics.mockResolvedValue({
+      databaseSizeBytes: 1024, databaseIntegrityOk: true, schemaVersion: 1, parserVersion: 3,
+      indexedSessions: 1, retainedUsageEvents: 1, retainedToolEvents: 1, sources: [], recentRuns: [], generatedAtMs: Date.now(),
+    });
+    const { unmount } = renderPage(<DataPage />);
+    expect(await screen.findByText('C:\\Users\\tester\\AppData\\Local\\Chronolume\\v2')).toBeInTheDocument();
+    unmount();
+
+    api.getBootstrapStatus.mockResolvedValue({
+      appVersion: '2.1.0', platform: 'macos',
+      dataDirectory: '/Users/tester/Library/Application Support/Chronolume/v2',
+      databasePath: '/Users/tester/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3',
+      schemaVersion: 1, databaseSizeBytes: 1024,
+    });
+    renderPage(<DataPage />);
+    expect(await screen.findByText('/Users/tester/Library/Application Support/Chronolume/v2')).toBeInTheDocument();
+    expect(screen.queryByText(/LOCALAPPDATA/)).not.toBeInTheDocument();
   });
 });

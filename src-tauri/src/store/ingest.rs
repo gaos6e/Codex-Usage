@@ -1441,7 +1441,11 @@ pub fn retention_cutoff_utc_ms(now_utc_ms: i64, retain_days: u64, timezone: Tz) 
 }
 
 fn normalize_workspace_path(raw: &str) -> String {
-    let replaced = raw.trim().replace('\\', "/");
+    let replaced = if cfg!(windows) {
+        raw.trim().replace('\\', "/")
+    } else {
+        raw.trim().to_string()
+    };
     let mut normalized = String::with_capacity(replaced.len());
     let mut previous_slash = false;
     for character in replaced.chars() {
@@ -1463,10 +1467,11 @@ fn normalize_workspace_path(raw: &str) -> String {
 }
 
 fn workspace_id(normalized_path: &str) -> String {
+    let platform_identity = crate::platform::workspace_identity_path(normalized_path);
     let identity = if cfg!(windows) {
-        normalized_path.to_ascii_lowercase()
+        platform_identity.to_ascii_lowercase()
     } else {
-        normalized_path.to_string()
+        platform_identity
     };
     let digest = blake3::hash(identity.as_bytes()).to_hex();
     format!("workspace:{}", &digest[..24])
@@ -1593,9 +1598,31 @@ mod tests {
     }
 
     #[test]
-    fn workspace_normalization_is_stable_without_touching_the_path() {
+    fn workspace_normalization_preserves_readable_posix_unicode_and_spaces() {
+        assert_eq!(
+            normalize_workspace_path(" /Users/高帅/Project With Spaces/Δelta/ "),
+            "/Users/高帅/Project With Spaces/Δelta"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_workspace_identity_remains_case_insensitive() {
         assert_eq!(normalize_workspace_path(r"C:\work\repo\\"), "C:/work/repo");
         assert_eq!(workspace_id(r"C:/work/repo"), workspace_id(r"c:/WORK/repo"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_missing_workspace_identity_is_case_conservative() {
+        assert_eq!(
+            normalize_workspace_path(r"/Users/test/Project\WithBackslash"),
+            r"/Users/test/Project\WithBackslash"
+        );
+        assert_ne!(
+            workspace_id("/Volumes/Missing/Project"),
+            workspace_id("/Volumes/Missing/project")
+        );
     }
 
     #[test]

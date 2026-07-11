@@ -1,0 +1,58 @@
+name: Build unsigned macOS candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-universal:
+    runs-on: macos-14
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify source and tests
+        run: |
+          npm run check:versions
+          npm run typecheck
+          npm run lint
+          npm test
+          npm run build
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
+
+      - name: Generate license artifact
+        shell: pwsh
+        run: ./scripts/generate-third-party-licenses.ps1 -CargoTarget aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build unsigned Universal app and DMG
+        run: npm run tauri:build:macos -- --no-sign --ci
+
+      - name: Verify and stage macOS artifacts
+        run: bash ./scripts/verify-macos-bundle.sh
+
+      - name: Upload unsigned candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Chronolume-unsigned-macos-universal
+          path: artifacts/macos/*
+          if-no-files-found: error
+          retention-days: 14

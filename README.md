@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/gaos6e/Chronolume/releases/latest"><img src="https://img.shields.io/github/v/release/gaos6e/Chronolume?display_name=tag&amp;sort=semver&amp;label=release&amp;color=5269c3" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" alt="Windows x64">
+  <img src="https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20Universal-0078D4" alt="Windows x64 and macOS Universal">
   <img src="https://img.shields.io/badge/data-local--first-15966f" alt="Local-first">
   <img src="https://img.shields.io/badge/privacy-no%20telemetry-6941c6" alt="No telemetry">
 </p>
@@ -23,7 +23,7 @@
   · <a href="docs/performance.md">性能数据</a>
 </p>
 
-Chronolume 是为 OpenAI Codex 用户打造的 Windows 本地洞察应用。它把散落在 `~/.codex` 中的活动记录，整理成直观的 Token、会话、活跃时间、模型、工具与成本趋势，让你看见一次次人机协作如何累积成真实的工作节奏。
+Chronolume 是为 OpenAI Codex 用户打造的 Windows 与 macOS 本地洞察应用。它把散落在 `~/.codex` 中的活动记录，整理成直观的 Token、会话、活跃时间、模型、工具与成本趋势，让你看见一次次人机协作如何累积成真实的工作节奏。
 
 它不是代理、抓包器或云端账号面板，更像一盏只照向本地数据的灯：不接管请求，不要求登录，不把数据上传到远端。安装后直接读取 Codex 已经写在本机的记录，在后台增量建立分析索引；日常打开即可查看，无需改变原有工作方式。
 
@@ -72,11 +72,11 @@ Chronolume 是为 OpenAI Codex 用户打造的 Windows 本地洞察应用。它�
 
 ## 从下载到看见数据
 
-1. 前往 [GitHub Releases](https://github.com/gaos6e/Chronolume/releases/latest)，选择 NSIS 安装器或便携 ZIP。
+1. Windows 用户前往 [GitHub Releases](https://github.com/gaos6e/Chronolume/releases/latest)，选择 NSIS 安装器或便携 ZIP。macOS 正式下载将在 Developer ID 签名、公证和真机验收完成后开放。
 2. 启动 Chronolume。应用会以只读方式扫描 `~/.codex`，首次建立索引，之后只做增量同步。
 3. 选择时间范围、工作区、提供方、模型和会话状态，开始查看或导出自己的 Codex 使用图景。
 
-当前发布包面向 Windows x64，并依赖 WebView2 Runtime。安装器尚未签名，在签名信誉建立前 Windows SmartScreen 可能显示提醒；请始终从本仓库的 Releases 页面获取安装包。
+Windows x64 版本依赖 WebView2 Runtime。安装器尚未签名，在签名信誉建立前 Windows SmartScreen 可能显示提醒。macOS 2.1.0 阶段 A 只生成未签名 Universal `.app`/`.dmg` GitHub Actions artifact，不作为正式 Release；正式分发必须先完成 Developer ID 签名、Apple 公证、staple、Gatekeeper 验证和外部 Mac 验收。
 
 ## 核心能力
 
@@ -104,23 +104,26 @@ Chronolume 对 `~/.codex` 只读，默认完全离线，无遥测、无后台上
 分析数据库与应用设置保存在：
 
 ```text
-%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3
+Windows: %LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3
+macOS:   ~/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3
 ```
 
-Chronolume 2.0 不迁移 1.x 缓存或设置，详见 [docs/migration-and-cleanup.md](docs/migration-and-cleanup.md)。清空分析库只会删除派生统计，不会修改 `~/.codex` 或用户导出文件。
+Windows 延续 2.0 的品牌数据迁移；macOS 不探测 Windows 历史应用目录。详见 [docs/migration-and-cleanup.md](docs/migration-and-cleanup.md)。清空分析库只会删除派生统计，不会修改 `~/.codex` 或用户导出文件。
 
 ## 开发与构建
 
-Chronolume 2.0 使用 Tauri 2、Rust、React、TypeScript 与 Vite 构建。架构与数据模型说明见 [docs/architecture.md](docs/architecture.md) 和 [docs/data-model.md](docs/data-model.md)。
+Chronolume 2.1 使用 Tauri 2、Rust、React、TypeScript 与 Vite 构建。架构与数据模型说明见 [docs/architecture.md](docs/architecture.md) 和 [docs/data-model.md](docs/data-model.md)。
 
 ### 环境要求
 
-Node.js/npm、Rust stable MSVC、Visual Studio Build Tools C++ workload、WebView2 Runtime。
+- 通用：Node.js 22、npm、Rust stable（最低 1.85）。
+- Windows：MSVC toolchain、Visual Studio Build Tools C++ workload、WebView2 Runtime。
+- macOS：macOS 12+、Xcode Command Line Tools；Universal 构建需安装 `aarch64-apple-darwin` 与 `x86_64-apple-darwin` Rust targets。
 
 ### 本地开发
 
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
 
@@ -156,8 +159,18 @@ benchmark 只读取 `~/.codex`，分析库写到显式指定路径。目标和�
 
 ### 构建与打包
 
+Windows：
+
 ```powershell
-npm run tauri:build
+npm run tauri:build:windows
+.\scripts\build-portable.ps1
 ```
 
-NSIS 安装器与 Release EXE 位于 `src-tauri/target/release`，最终交付同时提供便携 ZIP。产物路径、哈希和 smoke test 见 [docs/packaging.md](docs/packaging.md)。
+macOS 未签名候选（只能在 macOS 上构建）：
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+npm run tauri:build:macos -- --no-sign --ci
+```
+
+Windows 产物路径、哈希和 smoke test 见 [docs/packaging.md](docs/packaging.md)；macOS Universal 候选、签名门禁和验证流程见 [docs/packaging-macos.md](docs/packaging-macos.md)。

@@ -1,0 +1,206 @@
+name: Release signed and notarized dual-platform build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact release version without a leading v
+        required: true
+        type: string
+      external_mac_validation_record:
+        description: Link or identifier for Apple Silicon and x86_64/Rosetta acceptance evidence
+        required: true
+        type: string
+      approval:
+        description: Type I_APPROVE_SIGNED_RELEASE after the external Mac gate passes
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Windows release source
+        shell: pwsh
+        run: |
+          npm run check:versions
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path src-tauri/Cargo.toml --all-targets --all-features
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and smoke Windows distributions
+        shell: pwsh
+        run: |
+          npm run tauri:build:windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/build-portable.ps1
+          if (-not $?) { throw 'Portable packaging failed.' }
+          ./scripts/smoke-distributions.ps1 -ReportPath artifacts/windows-smoke.json
+          if (-not $?) { throw 'Windows distribution smoke failed.' }
+          ./scripts/stage-windows-artifacts.ps1 -SmokeReportPath artifacts/windows-smoke.json
+          if (-not $?) { throw 'Windows artifact staging failed.' }
+
+      - name: Upload verified Windows distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Chronolume-windows-release
+          path: artifacts/windows/*
+          if-no-files-found: error
+          retention-days: 7
+
+  signed-release:
+    needs: build-windows
+    runs-on: macos-14
+    environment: macos-release
+    permissions:
+      contents: write
+      actions: read
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      EXTERNAL_MAC_VALIDATION_RECORD: ${{ inputs.external_mac_validation_record }}
+      RELEASE_APPROVAL: ${{ inputs.approval }}
+
+    steps:
+      - name: Enforce manual release and external Mac gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$RELEASE_APPROVAL" = "I_APPROVE_SIGNED_RELEASE"
+          test -n "$EXTERNAL_MAC_VALIDATION_RECORD"
+          test -n "$APPLE_SIGNING_IDENTITY"
+          test -n "$APPLE_API_ISSUER"
+          test -n "$APPLE_API_KEY"
+          test -n "$APPLE_TEAM_ID"
+
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Download verified Windows distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Chronolume-windows-release
+          path: artifacts/windows
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify requested version
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check:versions
+          test "$(node -p "require('./package.json').version")" = "$RELEASE_VERSION"
+
+      - name: Import Developer ID certificate into a temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/chronolume-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Write App Store Connect API key
+        shell: bash
+        env:
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+          chmod 600 "$APPLE_API_KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$APPLE_API_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Generate licenses and build signed notarized Universal bundle
+        shell: pwsh
+        run: ./scripts/generate-third-party-licenses.ps1 -CargoTarget aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build, notarize, and staple
+        run: npm run tauri:build:macos -- --ci
+
+      - name: Verify signed release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/Chronolume.app"
+          DMG="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --verify --strict --verbose=2 "$DMG"
+          spctl --assess --type execute --verbose=2 "$APP"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+          xcrun stapler validate "$APP"
+          hdiutil verify "$DMG"
+          xcrun stapler validate "$DMG"
+          bash ./scripts/verify-macos-bundle.sh
+          (cd artifacts/windows && shasum -a 256 -c SHA256SUMS-windows.txt)
+          (cd artifacts/macos && shasum -a 256 -c SHA256SUMS-macos.txt)
+
+      - name: Publish approved GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$RELEASE_VERSION" artifacts/windows/* artifacts/macos/* \
+            --title "Chronolume $RELEASE_VERSION" \
+            --notes "Signed and notarized macOS Universal release. External Mac validation: $EXTERNAL_MAC_VALIDATION_RECORD"
+
+      - name: Destroy temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          cleanup_keychain="${KEYCHAIN_PATH:-$RUNNER_TEMP/chronolume-signing.keychain-db}"
+          if [ -e "$cleanup_keychain" ]; then
+            security delete-keychain "$cleanup_keychain" || true
+          fi
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP"/AuthKey_*.p8

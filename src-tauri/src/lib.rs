@@ -5,6 +5,7 @@ mod commands;
 mod error;
 pub mod export;
 pub mod indexer;
+mod platform;
 pub mod pricing;
 pub mod pricing_update;
 pub mod query;
@@ -12,14 +13,11 @@ pub mod source;
 pub mod store;
 
 use std::sync::Arc;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
 
 use commands::RuntimeState;
 use export::UsageExporter;
 use indexer::{SyncMode, UsageIndexer, default_codex_root, system_timezone};
+use platform::resolve_analysis_database;
 use pricing::BUILTIN_PRICING_REVISION;
 use pricing_update::PriceUpdateService;
 use source::FsCodexSource;
@@ -28,7 +26,7 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let database_path = resolve_analysis_database(&app.path().local_data_dir()?)
@@ -137,119 +135,84 @@ pub fn run() {
             commands::write_chart_png,
             commands::get_app_preferences,
             commands::save_app_preferences
-        ])
-        .run(tauri::generate_context!())
-        .expect("Chronolume runtime failed");
+        ]);
+
+    #[cfg(target_os = "macos")]
+    let builder = configure_macos_builder(builder);
+
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("Chronolume runtime failed to build");
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if matches!(event, tauri::RunEvent::Reopen { .. }) {
+            show_main_window(app_handle);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app_handle, event);
+    });
 }
 
-const DATA_DIRECTORY: &str = "Chronolume";
-const DATABASE_NAME: &str = "chronolume-v2.sqlite3";
-const LEGACY_DATA_DIRECTORY: &str = "CodexUsage";
-const LEGACY_DATABASE_NAME: &str = "codex-usage-v2.sqlite3";
+#[cfg(target_os = "macos")]
+fn configure_macos_builder<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
-/// Moves the 2.0 analytics database to the Chronolume namespace before it is opened.
-/// The stable Tauri bundle identifier is intentionally retained so installed upgrades and
-/// WebView preferences continue to belong to the same application.
-fn resolve_analysis_database(local_data_root: &Path) -> std::io::Result<PathBuf> {
-    let data_dir = local_data_root.join(DATA_DIRECTORY).join("v2");
-    let legacy_data_dir = local_data_root.join(LEGACY_DATA_DIRECTORY).join("v2");
-
-    if !data_dir.exists() && legacy_data_dir.exists() {
-        if let Some(parent) = data_dir.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::rename(&legacy_data_dir, &data_dir)?;
-    }
-    fs::create_dir_all(&data_dir)?;
-
-    let database_path = data_dir.join(DATABASE_NAME);
-    let legacy_database_path = data_dir.join(LEGACY_DATABASE_NAME);
-    let migration_started = legacy_database_path.exists()
-        || (database_path.exists()
-            && ["-wal", "-shm"].iter().any(|suffix| {
-                data_dir
-                    .join(format!("{LEGACY_DATABASE_NAME}{suffix}"))
-                    .exists()
-            }));
-    if migration_started {
-        for suffix in ["", "-wal", "-shm"] {
-            let legacy = data_dir.join(format!("{LEGACY_DATABASE_NAME}{suffix}"));
-            let current = data_dir.join(format!("{DATABASE_NAME}{suffix}"));
-            if legacy.exists() && !current.exists() {
-                fs::rename(legacy, current)?;
+    builder
+        .menu(|app| {
+            let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
+            let app_menu = SubmenuBuilder::new(app, "Chronolume")
+                .about_with_text("About Chronolume", None)
+                .separator()
+                .item(&settings)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            let edit_menu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let window_menu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .maximize_with_text("Zoom")
+                .separator()
+                .close_window()
+                .build()?;
+            MenuBuilder::new(app)
+                .items(&[&app_menu, &edit_menu, &window_menu])
+                .build()
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "open-settings" {
+                show_main_window(app);
+                let _ = app.emit("chronolume-open-settings", ());
             }
-        }
-    }
-    Ok(database_path)
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
 }
 
-#[cfg(test)]
-mod brand_migration_tests {
-    use super::*;
-
-    #[test]
-    fn migrates_legacy_database_directory_and_wal_sidecars() {
-        let root = tempfile::tempdir().expect("temporary root");
-        let legacy = root.path().join(LEGACY_DATA_DIRECTORY).join("v2");
-        fs::create_dir_all(&legacy).expect("legacy data directory");
-        fs::write(legacy.join(LEGACY_DATABASE_NAME), b"database").expect("database");
-        fs::write(legacy.join(format!("{LEGACY_DATABASE_NAME}-wal")), b"wal").expect("wal");
-        fs::write(legacy.join(format!("{LEGACY_DATABASE_NAME}-shm")), b"shm").expect("shm");
-
-        let database = resolve_analysis_database(root.path()).expect("migrate database");
-
-        assert_eq!(
-            database,
-            root.path()
-                .join(DATA_DIRECTORY)
-                .join("v2")
-                .join(DATABASE_NAME)
-        );
-        assert_eq!(fs::read(&database).expect("migrated database"), b"database");
-        assert_eq!(
-            fs::read(database.with_file_name(format!("{DATABASE_NAME}-wal")))
-                .expect("migrated wal"),
-            b"wal"
-        );
-        assert_eq!(
-            fs::read(database.with_file_name(format!("{DATABASE_NAME}-shm")))
-                .expect("migrated shm"),
-            b"shm"
-        );
-        assert!(!legacy.exists());
-    }
-
-    #[test]
-    fn keeps_existing_chronolume_database_authoritative() {
-        let root = tempfile::tempdir().expect("temporary root");
-        let current = root.path().join(DATA_DIRECTORY).join("v2");
-        let legacy = root.path().join(LEGACY_DATA_DIRECTORY).join("v2");
-        fs::create_dir_all(&current).expect("current data directory");
-        fs::create_dir_all(&legacy).expect("legacy data directory");
-        fs::write(current.join(DATABASE_NAME), b"current").expect("current database");
-        fs::write(legacy.join(LEGACY_DATABASE_NAME), b"legacy").expect("legacy database");
-
-        let database = resolve_analysis_database(root.path()).expect("resolve database");
-
-        assert_eq!(fs::read(database).expect("current database"), b"current");
-        assert!(legacy.join(LEGACY_DATABASE_NAME).exists());
-    }
-
-    #[test]
-    fn resumes_after_the_main_database_was_already_renamed() {
-        let root = tempfile::tempdir().expect("temporary root");
-        let current = root.path().join(DATA_DIRECTORY).join("v2");
-        fs::create_dir_all(&current).expect("current data directory");
-        fs::write(current.join(DATABASE_NAME), b"database").expect("current database");
-        fs::write(current.join(format!("{LEGACY_DATABASE_NAME}-wal")), b"wal").expect("legacy wal");
-
-        let database = resolve_analysis_database(root.path()).expect("resume migration");
-
-        assert_eq!(fs::read(&database).expect("database"), b"database");
-        assert_eq!(
-            fs::read(database.with_file_name(format!("{DATABASE_NAME}-wal")))
-                .expect("migrated wal"),
-            b"wal"
-        );
+#[cfg(target_os = "macos")]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
 }

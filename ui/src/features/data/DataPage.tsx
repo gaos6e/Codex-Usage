@@ -2,13 +2,14 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Database, FileStack, RefreshCw, ShieldCheck, Trash2, Wrench } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { clearAnalysis, getDiagnostics, startSync } from '../../api';
+import { clearAnalysis, getBootstrapStatus, getDiagnostics, startSync } from '../../api';
 import { QueryStatus } from '../../components/QueryStatus';
 import { formatBytes, formatDuration } from '../../lib/format';
 
 export function DataPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const bootstrap = useQuery({ queryKey: ['bootstrap'], queryFn: getBootstrapStatus });
   const diagnostics = useQuery({ queryKey: ['diagnostics'], queryFn: getDiagnostics, refetchInterval: 10_000 });
   const refresh = useMutation({
     mutationFn: (mode: 'incremental' | 'rebuild' | 'repair') => startSync(mode),
@@ -66,7 +67,11 @@ export function DataPage() {
         <button type="button" className="quiet-button" disabled={refresh.isPending} onClick={() => refresh.mutate('rebuild')}><Wrench />{t('重新索引')}</button>
         <button type="button" className="danger-button" disabled={clear.isPending} onClick={confirmClear}><Trash2 />{t('清空分析库')}</button>
       </div>
-      <p className="privacy-note">{t('这些操作只写入 %LOCALAPPDATA%\\Chronolume\\v2；不会写入、移动或删除 ~/.codex。')}</p>
+      <p className="privacy-note">
+        <span>{t('这些操作只写入 Chronolume 分析目录：')}</span>
+        <code>{bootstrap.data?.dataDirectory ?? '—'}</code>
+        <span>{t('；不会写入、移动或删除 ~/.codex。')}</span>
+      </p>
     </section>
     <section className="feature-card">
       <div className="feature-card-heading"><div><span>RUNS</span><h2>{t('最近同步与性能')}</h2></div></div>

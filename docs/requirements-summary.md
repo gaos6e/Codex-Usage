@@ -1,6 +1,6 @@
-# Chronolume 2.0 功能边界
+# Chronolume 2.1 功能边界
 
-Chronolume 是仅面向 OpenAI Codex 的 Windows 本地活动、用量与成本分析应用。它不实现代理、请求拦截、账号、多账号、在线配额、会话正文搜索、后台价格更新或应用自动更新。
+Chronolume 是仅面向 OpenAI Codex 的 Windows x64 与 macOS 12+ Universal 本地活动、用量与成本分析应用。它不实现代理、请求拦截、账号、多账号、在线配额、会话正文搜索、后台价格更新、遥测或应用自动更新。
 
 已交付界面包括：
 
@@ -12,6 +12,6 @@ Chronolume 是仅面向 OpenAI Codex 的 Windows 本地活动、用量与成本�
 - 数据：四类来源能力、索引与安全水位、同步历史、修复/重建/取消/清空；
 - 设置：中英文、浅色/暗色/系统主题、字体缩放和活跃时间空闲间隔。
 
-所有页面使用后端聚合或服务端分页；全局筛选进入 TanStack Query key。同步完成事件会精确失效 Dashboard、工作区、会话、事件、模型、热力图、工具和诊断查询。浏览器预览只返回显式空状态，不生成演示用量。
+所有页面使用后端聚合或服务端分页；全局筛选进入 TanStack Query key。同步完成事件会精确失效 Dashboard、工作区、会话、事件、模型、热力图、工具和诊断查询。浏览器预览只返回显式空状态，不生成演示用量。macOS 额外提供标准应用/Edit/Window 菜单、Command 快捷键、关闭后保持应用并由 Dock 重开窗口；Windows 不增加菜单栏或改变关闭行为。
 
 隐私边界以 [privacy.md](privacy.md) 为准；性能证据以 [performance.md](performance.md) 为准。

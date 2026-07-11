@@ -1,7 +1,7 @@
 {
   "name": "chronolume",
   "productName": "Chronolume",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Private, offline-first insight into local Codex activity, usage, and cost.",
   "private": true,
   "scripts": {
@@ -10,17 +10,21 @@
     "preview": "vite preview --config vite.config.ts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "npm run tauri:build:windows",
+    "tauri:build:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
+    "tauri:build:macos": "tauri build --target universal-apple-darwin --config src-tauri/tauri.macos.conf.json",
     "lint": "eslint --ext .ts,.tsx ui vite.config.ts vitest.config.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:versions": "node scripts/check-version-consistency.mjs"
   },
   "keywords": [
     "codex",
     "usage",
     "tauri",
-    "windows"
+    "windows",
+    "macos"
   ],
   "author": {
     "name": "gaos6e",
@@ -29,7 +33,7 @@
   "license": "MIT",
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "2.11.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.6.0",

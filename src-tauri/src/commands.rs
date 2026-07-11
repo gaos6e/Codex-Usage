@@ -28,6 +28,8 @@ pub struct RuntimeState {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapStatus {
     app_version: &'static str,
+    platform: &'static str,
+    data_directory: String,
     database_path: String,
     schema_version: i64,
     database_size_bytes: u64,
@@ -57,6 +59,14 @@ const fn default_idle_gap_minutes() -> u64 {
 pub fn get_bootstrap_status(state: State<'_, RuntimeState>) -> AppResult<BootstrapStatus> {
     Ok(BootstrapStatus {
         app_version: env!("CARGO_PKG_VERSION"),
+        platform: crate::platform::platform_id(),
+        data_directory: state
+            .store
+            .path()
+            .parent()
+            .unwrap_or_else(|| state.store.path())
+            .to_string_lossy()
+            .into_owned(),
         database_path: state.store.path().to_string_lossy().into_owned(),
         schema_version: state.store.schema_version()?,
         database_size_bytes: state.store.database_size_bytes()?,

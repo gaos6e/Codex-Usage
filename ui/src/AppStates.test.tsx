@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import i18n from './i18n';
@@ -19,12 +19,22 @@ const api = vi.hoisted(() => ({
   writeChartPng: vi.fn(),
 }));
 
-vi.mock('./api', () => ({
-  ...api,
-  isTauriRuntime: () => false,
+const nativeRuntime = vi.hoisted(() => ({
+  enabled: false,
+  listeners: new Map<string, () => void>(),
 }));
 
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
+vi.mock('./api', () => ({
+  ...api,
+  isTauriRuntime: () => nativeRuntime.enabled,
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (event: string, handler: () => void) => {
+    nativeRuntime.listeners.set(event, handler);
+    return () => nativeRuntime.listeners.delete(event);
+  }),
+}));
 vi.mock('./components/UsageTrendChart', () => ({
   UsageTrendChart: () => <div data-testid="trend-chart" />,
 }));
@@ -58,8 +68,13 @@ function renderApp() {
 describe('App data states', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    nativeRuntime.enabled = false;
+    nativeRuntime.listeners.clear();
     await i18n.changeLanguage('zh-CN');
-    api.getBootstrapStatus.mockResolvedValue({ appVersion: '2.0.1', databasePath: '', schemaVersion: 1, databaseSizeBytes: 0 });
+    api.getBootstrapStatus.mockResolvedValue({
+      appVersion: '2.1.0', platform: 'windows', dataDirectory: 'C:/Users/test/AppData/Local/Chronolume/v2',
+      databasePath: '', schemaVersion: 1, databaseSizeBytes: 0,
+    });
     api.getSyncStatus.mockResolvedValue({
       phase: 'idle', filesTotal: 0, filesCompleted: 0, bytesTotal: 0, bytesRead: 0,
       recordsWritten: 0, recordsSkipped: 0, parseFailures: 0, fileErrors: 0,
@@ -89,10 +104,11 @@ describe('App data states', () => {
     expect(analytics.lastElementChild).toContainElement(trend);
   });
 
-  it('labels partial and stale snapshots independently', async () => {
+  it('does not show a partial-data notice but still labels stale snapshots', async () => {
     api.getDashboard.mockResolvedValue({ ...baseSnapshot, dataState: 'partial' });
     const { unmount } = renderApp();
-    expect(await screen.findByText('部分会话缺少完整 Token 或生命周期记录；当前仅展示可验证的真实数据。')).toBeInTheDocument();
+    expect(await screen.findByText('真实总 Token')).toBeInTheDocument();
+    expect(screen.queryByText('部分会话缺少完整 Token 或生命周期记录；当前仅展示可验证的真实数据。')).not.toBeInTheDocument();
     unmount();
 
     api.getDashboard.mockResolvedValue({ ...baseSnapshot, generatedAtMs: Date.now() - 10 * 60_000 });
@@ -105,5 +121,17 @@ describe('App data states', () => {
     renderApp();
     expect(await screen.findByRole('alert')).toHaveTextContent('synthetic query failure');
     expect(screen.getByRole('button', { name: '重试查询' })).toBeInTheDocument();
+  });
+
+  it('opens settings when the native macOS Settings menu event is emitted', async () => {
+    nativeRuntime.enabled = true;
+    api.getDashboard.mockResolvedValue(baseSnapshot);
+    const { unmount } = renderApp();
+
+    await waitFor(() => expect(nativeRuntime.listeners.has('chronolume-open-settings')).toBe(true));
+    act(() => nativeRuntime.listeners.get('chronolume-open-settings')?.());
+
+    expect(await screen.findByRole('heading', { name: '外观与偏好' })).toBeInTheDocument();
+    unmount();
   });
 });

@@ -1,14 +1,15 @@
-# Chronolume 2.0 迁移与清理
+# Chronolume 2.1 迁移与清理
 
 ## 数据目录
 
-Chronolume 2.0.1 使用独立分析库：
+Chronolume 2.1 使用平台原生分析目录：
 
 ```text
-%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3
+Windows: %LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3
+macOS:   ~/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3
 ```
 
-从 Codex Usage 2.0.0 升级时，首次启动会在打开 SQLite 前，将旧品牌目录中的整个 `v2` 目录及数据库/WAL/SHM 文件移动到新位置并改名。迁移在同一卷内完成，不覆盖已经存在的 Chronolume 数据库；因此历史索引、模型价格和应用设置可以连续使用，无需重新读取 JSONL。
+仅在 Windows 上，从 Codex Usage 2.0.0 升级时会在打开 SQLite 前，将旧品牌目录中的整个 `v2` 目录及数据库/WAL/SHM 文件移动到新位置并改名。迁移在同一卷内完成，不覆盖已经存在的 Chronolume 数据库；因此历史索引、模型价格和应用设置可以连续使用，无需重新读取 JSONL。macOS 没有旧版发布历史，不会检查或创建 `CodexUsage` 迁移目录。
 
 它不会读取或迁移 1.x `settings.json`、JSON cache、Electron profile 或 Squirrel packages。没有 2.0 数据库时，首次启动仍从 `~/.codex` 只读重建完整索引。
 
@@ -26,7 +27,7 @@ Chronolume 2.0.1 使用独立分析库：
 
 ## 回滚
 
-2.0 分析库可随时从诊断页清空并重新索引；该操作只删除分析派生数据，保留模型价格和 UI 设置，也不写入 `~/.codex`。1.x 与 2.0 没有长期兼容层。Chronolume 继续使用原稳定 bundle identifier，仅用于安装升级和 WebView 偏好连续；该内部标识不作为用户可见品牌。
+v2 分析库可随时从诊断页清空并重新索引；该操作只删除分析派生数据，保留模型价格和 UI 设置，也不写入 `~/.codex`。Windows 继续使用原稳定 bundle identifier `com.gaos6e.codexusage`，保证安装升级和 WebView 偏好连续；macOS 从首版开始使用 `com.gaos6e.chronolume`。两个标识只代表各平台应用身份，不改变分析数据格式。
 
 ## 已执行结果（2026-07-10）
 

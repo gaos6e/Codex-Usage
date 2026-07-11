@@ -1,6 +1,8 @@
-# Chronolume 2.0 数据模型
+# Chronolume 2.1 数据模型
 
-v2 分析数据库位于 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，与旧 Electron 缓存隔离。数据库仅存结构化统计和恢复索引所需元数据，不存会话正文、工具参数、命令或代码。2.0.1 首次启动会迁移旧品牌目录中的 2.0.0 数据库及 WAL sidecar，并可从部分完成的文件改名继续。
+v2 分析数据库在 Windows 位于 `%LOCALAPPDATA%\Chronolume\v2\chronolume-v2.sqlite3`，在 macOS 位于 `~/Library/Application Support/Chronolume/v2/chronolume-v2.sqlite3`。数据库仅存结构化统计和恢复索引所需元数据，不存会话正文、工具参数、命令或代码。Windows 保留 2.0.1 的旧品牌数据库/WAL sidecar 迁移；macOS 从不探测或迁移 Windows 历史目录。
+
+工作区显示路径保留 Codex 记录中的可读形式。Windows 继续使用原有斜杠规范化和 ASCII 大小写不敏感哈希，避免已有 ID 改变；macOS 对已存在路径只读 `canonicalize`，由实际卷决定大小写语义并合并符号链接，无法规范化或不存在的路径按原大小写保守区分。该过程不会向工作区写入探测文件。
 
 | 表 | 保留期 | 主要职责 |
 | --- | --- | --- |

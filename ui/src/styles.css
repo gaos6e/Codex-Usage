@@ -549,6 +549,7 @@ button:disabled { cursor: wait; opacity: .5; }
 .tabs button.active { color: #b7c1ee; background: rgb(93 116 216 / 14%); }
 .pricing-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
 .pricing-toolbar p, .privacy-note { margin: 0; color: #707888; font-size: 0.8125rem; }
+.privacy-note code { overflow-wrap: anywhere; word-break: break-word; color: inherit; }
 .toolbar-actions { display: flex; gap: 7px; }
 .price-preview {
   position: fixed;

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0 — 2026-07-11
+
+- 新增 macOS 12+ Universal 应用与 DMG 候选构建，覆盖 Apple Silicon 与 Intel；未签名候选仅作为 GitHub Actions artifact。
+- 保留 Windows x64 NSIS 与便携 ZIP，并保持 `com.gaos6e.codexusage` 标识和现有数据/WebView 偏好连续。
+- macOS 使用 `com.gaos6e.chronolume`，增加标准菜单、Command 快捷键、关闭后 Dock 重开、系统主题与平台原生数据目录。
+- GitHub Actions 增加 Windows/macOS 测试矩阵、Universal slice/Info.plist/DMG/启动 smoke 验证，以及受保护环境控制的签名发布门禁。
+- 正式 macOS Release 仍要求 Developer ID 签名、公证、staple、Gatekeeper 验证和外部 Mac 真机验收。
+
+## 2.0.2 — 2026-07-11
+
+- 总览不再显示“部分会话缺少完整 Token 或生命周期记录”的顶部提示；内部 `partial` 数据状态和可验证统计口径保持不变。
+
 ## 2.0.1 — 2026-07-11
 
 - 产品品牌由 Codex Usage 统一更名为 Chronolume。

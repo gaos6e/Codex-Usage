@@ -93,4 +93,5 @@ dist/
 
 # Local UI QA artifacts
 output/
+artifacts/
 .playwright-cli/

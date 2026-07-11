@@ -2,7 +2,8 @@
 [CmdletBinding()]
 param(
   [string]$InstallerPath,
-  [string]$PortableArchive
+  [string]$PortableArchive,
+  [string]$ReportPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -107,7 +108,7 @@ New-Item -ItemType Directory -Path $smokeDir | Out-Null
 
 try {
   Expand-Archive -LiteralPath $PortableArchive -DestinationPath $smokeDir
-  foreach ($name in @('chronolume.exe', 'README.md', 'THIRD_PARTY_NOTICES.md')) {
+  foreach ($name in @('chronolume.exe', 'README.md', 'LICENSE', 'THIRD_PARTY_LICENSES.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $smokeDir $name) -PathType Leaf)) {
       throw "Portable archive entry is missing: $name"
     }
@@ -117,8 +118,18 @@ try {
   Remove-SmokeDirectory
 }
 
-[pscustomobject]@{
+$result = [pscustomobject]@{
   InstallerExitCode = $installer.ExitCode
   Installed = $installedResult
   Portable = $portableResult
-} | ConvertTo-Json -Depth 4
+}
+$json = $result | ConvertTo-Json -Depth 4
+if ($ReportPath) {
+  $ReportPath = [System.IO.Path]::GetFullPath($ReportPath)
+  $reportParent = Split-Path -Parent $ReportPath
+  if (-not (Test-Path -LiteralPath $reportParent -PathType Container)) {
+    New-Item -ItemType Directory -Path $reportParent -Force | Out-Null
+  }
+  [System.IO.File]::WriteAllText($ReportPath, $json, [System.Text.UTF8Encoding]::new($false))
+}
+$json
