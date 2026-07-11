@@ -10,7 +10,7 @@ Chronolume 2.1.0 的 macOS 目标是 macOS 12.0+ Universal 应用，同时包含
 2. 执行前端检查、Rust 测试和锁文件驱动的许可证生成。
 3. 通过 Tauri 锁定 CLI 的 `universal-apple-darwin` 与 `--no-sign` 构建 `.app`/`.dmg`。
 4. 用 `lipo` 检查两个 slice，用 `plutil` 检查 Bundle ID、2.1.0、最低系统 12.0 和应用名。
-5. `hdiutil verify` 并只读挂载 DMG，检查应用结构、主二进制和 `icon.icns`。
+5. `hdiutil verify` 并只读挂载 DMG，检查应用结构、唯一主二进制，以及 `Info.plist` 声明的 ICNS 或 Asset Catalog 图标资源。
 6. 使用一个不存在 `.codex` 的临时 HOME 启动挂载后的应用，确认进程不会在启动阶段退出，并断言数据库只出现在 `Library/Application Support/Chronolume/v2`、没有 bundle-ID 嵌套目录，再安全终止和卸载。
 7. 扫描包内数据库、WAL、日志和 `auth.json`，生成 `SHA256SUMS-macos.txt` 与 `verification-macos.txt`。
 
@@ -25,6 +25,12 @@ bash ./scripts/verify-macos-bundle.sh
 ```
 
 未签名 `.app`/`.dmg` 只用于内部验证，不上传正式 GitHub Release，也不向用户提供绕过 Gatekeeper 的操作说明。
+
+### 2.1.0 阶段 A 构建记录
+
+2026-07-11 的 [GitHub Actions run 29150578335](https://github.com/gaos6e/Chronolume/actions/runs/29150578335) 在 `macos-14-arm64` runner image `20260629.0180.1` 上完成。前端 28 项测试、Rust 55 项测试、双目标 Release 编译、Universal `lipo` 检查、Info.plist、图标、DMG 完整性/只读挂载、无 `.codex` 临时 HOME 启动、精确数据库目录和敏感文件扫描均通过。
+
+上传的内部 artifact 为 `Chronolume-unsigned-macos-universal`，artifact ID `8248081248`，大小 17,078,098 字节，GitHub artifact digest 为 `sha256:d1797f361cdec135a0bdc803af30dbe1802d332efe6588769fd580479e175fc9`；artifact 内另含 `.app.zip`、`.dmg`、二者 SHA-256 清单和验证记录。该记录只证明阶段 A 的未签名 runner 候选，不替代 Developer ID、公证、staple、Gatekeeper 或外部 Mac 真机验收。
 
 ## 阶段 B：Developer ID 与公证
 
