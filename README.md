@@ -14,14 +14,14 @@ Chronolume 是面向 OpenAI Codex 的 Windows 本地活动、用量与成本分�
 
 <table>
   <tr>
-    <td width="50%" align="center">
+    <td width="50%" align="center" valign="top">
       <a href="docs/images/chronolume-models.png">
         <img src="docs/images/chronolume-models.png" alt="Chronolume 模型与成本分析" width="100%">
       </a>
       <br>
       <sub><b>模型与成本</b> · 模型分布、缓存命中率与本地价格覆盖</sub>
     </td>
-    <td width="50%" align="center">
+    <td width="50%" align="center" valign="top">
       <a href="docs/images/chronolume-activity.png">
         <img src="docs/images/chronolume-activity.png" alt="Chronolume 工具与活动分析" width="100%">
       </a>
