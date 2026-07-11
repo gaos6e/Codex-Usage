@@ -7,18 +7,20 @@ artifact_root="${2:-$repo_root/artifacts/macos}"
 app="$bundle_root/macos/Chronolume.app"
 dmg="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
 
-test -d "$app"
-test -n "$dmg"
-test -f "$app/Contents/Info.plist"
-test -f "$app/Contents/MacOS/chronolume"
-test -f "$app/Contents/Resources/icon.icns"
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+[ -d "$app" ] || fail "macOS app bundle is missing: $app"
+[ -n "$dmg" ] || fail "macOS DMG is missing under: $bundle_root/dmg"
+[ -f "$app/Contents/Info.plist" ] || fail "Info.plist is missing from the app bundle."
+[ -f "$app/Contents/MacOS/chronolume" ] || fail "The Chronolume app executable is missing."
+[ -f "$app/Contents/Resources/icon.icns" ] || fail "The app icon is missing from Contents/Resources."
 
 binary="$app/Contents/MacOS/chronolume"
-mapfile -t bundled_executables < <(find "$app/Contents/MacOS" -maxdepth 1 -type f -exec basename {} \; | sort)
-if [ "${#bundled_executables[@]}" -ne 1 ] || [ "${bundled_executables[0]}" != "chronolume" ]; then
-  echo "Unexpected macOS bundle executables: ${bundled_executables[*]}" >&2
-  exit 1
-fi
+bundled_executables="$(find "$app/Contents/MacOS" -maxdepth 1 -type f -exec basename {} \; | sort)"
+[ "$bundled_executables" = "chronolume" ] || fail "Unexpected macOS bundle executables: $bundled_executables"
 archs="$(lipo -archs "$binary")"
 case " $archs " in *" arm64 "*) ;; *) echo "arm64 slice missing: $archs" >&2; exit 1 ;; esac
 case " $archs " in *" x86_64 "*) ;; *) echo "x86_64 slice missing: $archs" >&2; exit 1 ;; esac
@@ -27,10 +29,10 @@ bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")"
 version="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
 minimum_system="$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")"
 bundle_name="$(plutil -extract CFBundleName raw "$app/Contents/Info.plist")"
-test "$bundle_id" = "com.gaos6e.chronolume"
-test "$version" = "2.1.0"
-test "$minimum_system" = "12.0"
-test "$bundle_name" = "Chronolume"
+[ "$bundle_id" = "com.gaos6e.chronolume" ] || fail "Unexpected CFBundleIdentifier: $bundle_id"
+[ "$version" = "2.1.0" ] || fail "Unexpected CFBundleShortVersionString: $version"
+[ "$minimum_system" = "12.0" ] || fail "Unexpected LSMinimumSystemVersion: $minimum_system"
+[ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleName: $bundle_name"
 
 if find "$app" -type f \( -name '*.sqlite' -o -name '*.sqlite3' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' -o -name '*.log' -o -name 'auth.json' \) -print -quit | grep -q .; then
   echo "A database, log, or credential file was bundled into the app." >&2
