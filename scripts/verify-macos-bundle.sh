@@ -14,6 +14,11 @@ test -f "$app/Contents/MacOS/chronolume"
 test -f "$app/Contents/Resources/icon.icns"
 
 binary="$app/Contents/MacOS/chronolume"
+mapfile -t bundled_executables < <(find "$app/Contents/MacOS" -maxdepth 1 -type f -exec basename {} \; | sort)
+if [ "${#bundled_executables[@]}" -ne 1 ] || [ "${bundled_executables[0]}" != "chronolume" ]; then
+  echo "Unexpected macOS bundle executables: ${bundled_executables[*]}" >&2
+  exit 1
+fi
 archs="$(lipo -archs "$binary")"
 case " $archs " in *" arm64 "*) ;; *) echo "arm64 slice missing: $archs" >&2; exit 1 ;; esac
 case " $archs " in *" x86_64 "*) ;; *) echo "x86_64 slice missing: $archs" >&2; exit 1 ;; esac

@@ -101,6 +101,16 @@ $installedExe = Join-Path $env:LOCALAPPDATA 'Chronolume\chronolume.exe'
 if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
   throw "Installed executable is missing: $installedExe"
 }
+$installedDirectory = Split-Path -Parent $installedExe
+$installedExecutableNames = @(
+  Get-ChildItem -LiteralPath $installedDirectory -File -Filter '*.exe' |
+    Select-Object -ExpandProperty Name |
+    Sort-Object
+)
+$expectedInstalledExecutableNames = @('chronolume.exe', 'uninstall.exe') | Sort-Object
+if (($installedExecutableNames -join "`n") -ne ($expectedInstalledExecutableNames -join "`n")) {
+  throw "Installed executable set differs from the allowed desktop bundle: $($installedExecutableNames -join ', ')"
+}
 $installedResult = Test-AppWindow -Executable $installedExe
 
 Remove-SmokeDirectory
@@ -120,6 +130,7 @@ try {
 
 $result = [pscustomobject]@{
   InstallerExitCode = $installer.ExitCode
+  InstalledBundleExecutables = $installedExecutableNames
   Installed = $installedResult
   Portable = $portableResult
 }

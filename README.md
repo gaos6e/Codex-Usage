@@ -152,7 +152,7 @@ cargo test
 
 ```powershell
 Set-Location src-tauri
-cargo run --release --bin usage-benchmark -- "$HOME\.codex" "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
+cargo run --release --features benchmarks --bin usage-benchmark -- "$HOME\.codex" "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 ```
 
 benchmark 只读取 `~/.codex`，分析库写到显式指定路径。目标和实测结果见 [docs/performance.md](docs/performance.md)。

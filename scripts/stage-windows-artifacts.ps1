@@ -47,6 +47,11 @@ $smoke = Get-Content -LiteralPath $SmokeReportPath -Raw -Encoding utf8 | Convert
 if ($smoke.InstallerExitCode -ne 0 -or $smoke.Installed.WindowReadyMs -le 0 -or $smoke.Portable.WindowReadyMs -le 0) {
   throw 'Windows smoke report does not prove successful installed and portable launches.'
 }
+$expectedInstalledExecutables = @('chronolume.exe', 'uninstall.exe') | Sort-Object
+$actualInstalledExecutables = @($smoke.InstalledBundleExecutables | Sort-Object)
+if (($actualInstalledExecutables -join "`n") -ne ($expectedInstalledExecutables -join "`n")) {
+  throw "Windows smoke report contains an unexpected installed executable set: $($actualInstalledExecutables -join ', ')"
+}
 
 $portableEntries = @()
 $archive = [System.IO.Compression.ZipFile]::OpenRead($sources[2])
@@ -83,7 +88,7 @@ foreach ($source in $sources) {
 )
 [System.IO.File]::WriteAllText(
   (Join-Path $OutputPath 'verification-windows.txt'),
-  "Version: $version`nNSIS build: passed`nNSIS silent install smoke: passed`nInstalled window smoke: passed ($($smoke.Installed.WindowReadyMs) ms)`nPortable archive entry audit: passed`nPortable window smoke: passed ($($smoke.Portable.WindowReadyMs) ms)`n",
+  "Version: $version`nNSIS build: passed`nNSIS silent install smoke: passed`nInstalled executable audit: passed`nInstalled window smoke: passed ($($smoke.Installed.WindowReadyMs) ms)`nPortable archive entry audit: passed`nPortable window smoke: passed ($($smoke.Portable.WindowReadyMs) ms)`n",
   [System.Text.UTF8Encoding]::new($false)
 )
 

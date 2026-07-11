@@ -30,7 +30,7 @@ src-tauri\target\release\bundle\nsis\Chronolume_2.1.0_x64-setup.exe
 src-tauri\target\release\bundle\portable\Chronolume-2.1.0-windows-x64-portable.zip
 ```
 
-便携 ZIP 包含同一个 Release EXE、README、项目 `LICENSE` 和由实际锁文件生成的 `THIRD_PARTY_LICENSES.txt`，不附带分析数据库或用户数据。`build-portable.ps1` 会在压缩前重新执行许可证审计；旧的手写 `THIRD_PARTY_NOTICES.md` 不再是输入。安装器当前未签名，Windows SmartScreen 可能在建立签名信誉前显示警告。运行时目录由 Windows 平台路径解析，不依赖源码仓库位置。
+便携 ZIP 包含同一个 Release EXE、README、项目 `LICENSE` 和由实际锁文件生成的 `THIRD_PARTY_LICENSES.txt`，不附带分析数据库或用户数据。三个性能 benchmark 由显式 Cargo feature 管理，仅供开发验证，安装器和便携包都不得包含它们；smoke 会审计安装目录只能出现 `chronolume.exe` 与 `uninstall.exe`。`build-portable.ps1` 会在压缩前重新执行许可证审计；旧的手写 `THIRD_PARTY_NOTICES.md` 不再是输入。安装器当前未签名，Windows SmartScreen 可能在建立签名信誉前显示警告。运行时目录由 Windows 平台路径解析，不依赖源码仓库位置。
 
 ## 2.1.0 验证记录
 
@@ -38,11 +38,11 @@ src-tauri\target\release\bundle\portable\Chronolume-2.1.0-windows-x64-portable.z
 
 | 产物 | 字节 | SHA-256 |
 | --- | ---: | --- |
-| `chronolume.exe` | 10,357,760 | `1ABD2880AE06860C85BAC1A55FC014735DC9CBFE75A2F33AFFBDFAAA47AC3DC9` |
-| `Chronolume_2.1.0_x64-setup.exe` | 4,271,138 | `BCF83876B8AD2675B00A22DD58F4467682C811CB5E726397E648E40173898290` |
-| `Chronolume-2.1.0-windows-x64-portable.zip` | 4,330,353 | `829E0AE2375BD433FD33A83D8F3A8FB13A216CE43C1AD04B8BE943F8CEE782E2` |
+| `chronolume.exe` | 10,357,760 | `0517EF29D73BD33A1A593734DF7D0096DEBB51E993C4A159047B6F04FFD77F1B` |
+| `Chronolume_2.1.0_x64-setup.exe` | 3,206,899 | `4A37072AA716602F794953CBDEFFEA5DE3AE2E9AEC413ABFBAF713B5FB5F15D0` |
+| `Chronolume-2.1.0-windows-x64-portable.zip` | 4,330,306 | `332A8A68EA61FC9AA41B130109B20AF8876BBFDF0AE9EDE079F0BF6457534A43` |
 
-NSIS 静默安装退出码为 0；最新复跑中安装版在 127.60 ms 创建窗口，便携 ZIP 解压版在 95.87 ms 创建窗口。二者均由 smoke 脚本按自身 PID 正常关窗，ZIP 解压目录已安全清除；结构化 smoke JSON 又由发布暂存脚本读取并校验。`THIRD_PARTY_LICENSES.txt` 为 752,490 字节，SHA-256 为 `F470B4F3D31C1B6BE3C93526AD77726E7545A3A64C1F2BD915802F028E21E947`。
+NSIS 静默安装退出码为 0；安装目录二进制审计通过；最新复跑中安装版在 113.06 ms 创建窗口，便携 ZIP 解压版在 106.18 ms 创建窗口。二者均由 smoke 脚本按自身 PID 正常关窗，ZIP 解压目录已安全清除；结构化 smoke JSON 又由发布暂存脚本读取并校验。`THIRD_PARTY_LICENSES.txt` 为 752,490 字节，SHA-256 为 `F470B4F3D31C1B6BE3C93526AD77726E7545A3A64C1F2BD915802F028E21E947`。
 
 ## 2.0.2 最终产物（2026-07-11）
 

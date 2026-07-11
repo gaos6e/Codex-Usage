@@ -32,14 +32,14 @@
 ```powershell
 Set-Location .\src-tauri
 
-cargo run --release --bin usage-benchmark -- `
+cargo run --release --features benchmarks --bin usage-benchmark -- `
   "$HOME\.codex" `
   "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 
-cargo run --release --bin query-benchmark -- `
+cargo run --release --features benchmarks --bin query-benchmark -- `
   "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 
-cargo run --release --bin incremental-benchmark -- `
+cargo run --release --features benchmarks --bin incremental-benchmark -- `
   "$HOME\.codex" `
   "$env:LOCALAPPDATA\Chronolume\benchmarks\fresh.sqlite3"
 ```

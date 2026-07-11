@@ -26,6 +26,7 @@ const lockedTauriSchema = '../node_modules/@tauri-apps/cli/config.schema.json';
 expectEqual('package-lock top-level version', packageLock.version, version);
 expectEqual('package-lock root package version', packageLock.packages[''].version, version);
 expectEqual('Tauri common config version', tauriConfig.version, version);
+expectEqual('Tauri main bundle binary', tauriConfig.mainBinaryName, 'chronolume');
 expectEqual('Tauri CLI version is directly pinned', packageJson.devDependencies['@tauri-apps/cli'], '2.11.4');
 expectEqual(
   'package-lock root Tauri CLI version is directly pinned',

@@ -12,6 +12,11 @@ default-run = "chronolume"
 name = "chronolume_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+# Benchmark executables are developer tools. Keeping them behind an explicit feature
+# prevents Tauri from discovering and shipping them as additional desktop binaries.
+benchmarks = []
+
 [[bin]]
 name = "chronolume"
 path = "src/main.rs"
@@ -19,14 +24,17 @@ path = "src/main.rs"
 [[bin]]
 name = "usage-benchmark"
 path = "src/bin/usage-benchmark.rs"
+required-features = ["benchmarks"]
 
 [[bin]]
 name = "query-benchmark"
 path = "src/bin/query-benchmark.rs"
+required-features = ["benchmarks"]
 
 [[bin]]
 name = "incremental-benchmark"
 path = "src/bin/incremental-benchmark.rs"
+required-features = ["benchmarks"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
