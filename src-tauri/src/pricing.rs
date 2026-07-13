@@ -154,9 +154,26 @@ impl PricingCatalog {
     }
 }
 
-pub fn is_cost_excluded(provider: &str, model: &str) -> bool {
-    provider.eq_ignore_ascii_case("openai")
-        && model.trim().eq_ignore_ascii_case("codex-auto-review")
+pub fn canonical_model_provider(raw: &str) -> String {
+    let provider = raw.trim();
+    if provider.eq_ignore_ascii_case("openai") {
+        "openai".to_string()
+    } else if provider.is_empty()
+        || provider.eq_ignore_ascii_case("unknown")
+        || provider.eq_ignore_ascii_case("(unknown)")
+    {
+        "unknown".to_string()
+    } else {
+        "custom".to_string()
+    }
+}
+
+pub fn is_statistics_excluded_model(model: &str) -> bool {
+    model.trim().eq_ignore_ascii_case("codex-auto-review")
+}
+
+pub fn is_cost_excluded(_provider: &str, model: &str) -> bool {
+    is_statistics_excluded_model(model)
 }
 
 /// 生成从最具体到最宽泛的计价候选，不改变或限制原始模型字符串。
@@ -200,7 +217,11 @@ fn historical_tier_alias(value: &str) -> Option<String> {
 /// 因此降序稳定得到 5.6 Sol、5.6 Terra、5.6 Luna、5.5…。
 pub fn model_strength_sort_key(raw: &str) -> i64 {
     let normalized = normalize_model_id(raw).exact;
-    let Some(rest) = normalized.strip_prefix("gpt-") else {
+    let (family, rest) = if let Some(rest) = normalized.strip_prefix("gpt-") {
+        (4_i64, rest)
+    } else if let Some(rest) = normalized.strip_prefix('o') {
+        (1_i64, rest)
+    } else {
         return 0;
     };
     let version = rest.split('-').next().unwrap_or_default();
@@ -229,10 +250,12 @@ pub fn model_strength_sort_key(raw: &str) -> i64 {
     } else {
         600
     };
-    major
-        .saturating_mul(1_000_000)
-        .saturating_add(minor.saturating_mul(10_000))
-        .saturating_add(tier)
+    family.saturating_mul(1_000_000_000).saturating_add(
+        major
+            .saturating_mul(1_000_000)
+            .saturating_add(minor.saturating_mul(10_000))
+            .saturating_add(tier),
+    )
 }
 
 fn token_cost(tokens: u64, price_per_million_usd: Decimal) -> Decimal {
@@ -302,12 +325,28 @@ mod tests {
 
     #[test]
     fn sorts_models_by_version_then_strength_tier() {
-        let ordered = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"];
+        let ordered = [
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-5.5",
+            "o4",
+            "o4-mini",
+            "o3",
+        ];
         assert!(
             ordered.windows(2).all(|pair| {
                 model_strength_sort_key(pair[0]) > model_strength_sort_key(pair[1])
             })
         );
+    }
+
+    #[test]
+    fn canonicalizes_visible_providers_without_promoting_unknown_values() {
+        assert_eq!(canonical_model_provider(" OpenAI "), "openai");
+        assert_eq!(canonical_model_provider("codex_local_access"), "custom");
+        assert_eq!(canonical_model_provider("azure"), "custom");
+        assert_eq!(canonical_model_provider("unknown"), "unknown");
     }
 
     #[test]

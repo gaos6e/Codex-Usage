@@ -48,7 +48,7 @@ const emptySyncStatus: SyncStatus = {
 export async function getBootstrapStatus(): Promise<BootstrapStatus> {
   if (!isTauriRuntime()) {
     return {
-      appVersion: '2.1.0-dev',
+      appVersion: '2.1.1-dev',
       platform: 'browser',
       dataDirectory: '浏览器预览模式',
       databasePath: '浏览器预览模式',

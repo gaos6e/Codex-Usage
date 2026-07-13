@@ -201,7 +201,6 @@ export interface SessionRow {
 }
 
 export interface ModelRow {
-  provider: string;
   model: string;
   pricingModelId?: string;
   sessionCount: number;

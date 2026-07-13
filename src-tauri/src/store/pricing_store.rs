@@ -10,7 +10,7 @@ use super::UsageStore;
 use crate::error::{AppError, AppResult};
 use crate::pricing::{
     BUILTIN_PRICING_REVISION, ModelPrice, OFFICIAL_PRICING_SOURCE, PriceQuote, PriceableTokens,
-    PricingCatalog, builtin_model_prices,
+    PricingCatalog, builtin_model_prices, canonical_model_provider,
 };
 use crate::pricing_update::TrustedPriceRow;
 
@@ -196,13 +196,17 @@ impl UsageStore {
                         output_per_million_usd, cache_read_per_million_usd,
                         cache_write_per_million_usd, is_builtin, is_overridden,
                         is_deleted, revision, source_url, source_updated_at_ms
-                 FROM model_prices ORDER BY provider, pricing_id"
+                 FROM model_prices
+                 ORDER BY model_strength_key(pricing_id) DESC,
+                          pricing_id COLLATE NOCASE ASC, provider COLLATE NOCASE ASC"
             } else {
                 "SELECT provider, pricing_id, display_name, input_per_million_usd,
                         output_per_million_usd, cache_read_per_million_usd,
                         cache_write_per_million_usd, is_builtin, is_overridden,
                         is_deleted, revision, source_url, source_updated_at_ms
-                 FROM model_prices WHERE is_deleted = 0 ORDER BY provider, pricing_id"
+                 FROM model_prices WHERE is_deleted = 0
+                 ORDER BY model_strength_key(pricing_id) DESC,
+                          pricing_id COLLATE NOCASE ASC, provider COLLATE NOCASE ASC"
             };
             let mut statement = connection.prepare(sql)?;
             let rows = statement.query_map([], |row| {
@@ -251,7 +255,10 @@ impl UsageStore {
 
     pub fn save_model_price(&self, input: &ModelPriceInput) -> AppResult<()> {
         validate_price_input(input)?;
-        let provider = input.provider.trim().to_ascii_lowercase();
+        let provider = match canonical_model_provider(&input.provider).as_str() {
+            "openai" => "openai".to_string(),
+            _ => "custom".to_string(),
+        };
         let pricing_id = input.pricing_id.trim().to_ascii_lowercase();
         let now = Utc::now().timestamp_millis();
         self.with_writer(|transaction| {
@@ -660,6 +667,14 @@ mod tests {
         let store = UsageStore::open_in_memory().unwrap();
         store.seed_builtin_prices().unwrap();
         let prices = store.model_prices(false).unwrap();
+        assert_eq!(
+            prices
+                .iter()
+                .take(4)
+                .map(|price| price.pricing_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]
+        );
         let sol = prices
             .iter()
             .find(|price| price.pricing_id == "gpt-5.6-sol")
@@ -726,6 +741,25 @@ mod tests {
                 .iter()
                 .any(|price| price.pricing_id == "gpt-5.6-luna")
         );
+
+        store
+            .save_model_price(&ModelPriceInput {
+                provider: "codex_local_access".into(),
+                pricing_id: "gpt-custom".into(),
+                display_name: "Custom".into(),
+                input_per_million_usd: "1".into(),
+                output_per_million_usd: "8".into(),
+                cache_read_per_million_usd: "0.1".into(),
+                cache_write_per_million_usd: None,
+            })
+            .unwrap();
+        let custom = store
+            .model_prices(false)
+            .unwrap()
+            .into_iter()
+            .find(|price| price.pricing_id == "gpt-custom")
+            .unwrap();
+        assert_eq!(custom.provider, "custom");
     }
 
     #[test]

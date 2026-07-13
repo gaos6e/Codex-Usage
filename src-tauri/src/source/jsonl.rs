@@ -11,7 +11,7 @@ use super::{
 };
 use crate::activity::{ToolInvocation, classify};
 use crate::error::{AppError, AppResult};
-use crate::pricing::normalize_model_id;
+use crate::pricing::{canonical_model_provider, normalize_model_id};
 
 pub(super) fn stream_jsonl(
     change: &SourceChange,
@@ -119,7 +119,7 @@ fn parse_session_metadata(
         .get("model_provider")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .map(canonical_model_provider);
     if let Some(provider) = &provider {
         cursor.model_provider = Some(provider.clone());
     }

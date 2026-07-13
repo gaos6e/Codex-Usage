@@ -78,7 +78,6 @@ const english: Record<string, string> = {
   '最近使用': 'Recently used', '输入': 'Input', '缓存': 'Cache', '命中率': 'Hit rate',
   '平均每会话成本': 'Average cost per session',
   '计价': 'priced as', '未匹配价格': 'No matching price',
-  '内部功能，不计入缺价': 'Internal feature; excluded from missing-price alerts',
   '标准价适用于不超过 272K 输入': 'Standard rate applies up to 272K input tokens',
   '价格单位为 USD / 1M Token。修改后只重算本地汇总，不重新读取 JSONL。': 'Prices are USD per 1M tokens. Changes reprice local rollups without rereading JSONL.',
   '正在检查': 'Checking', '检查官方更新': 'Check official updates', '添加价格': 'Add price',

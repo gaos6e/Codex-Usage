@@ -133,7 +133,7 @@ describe('feature pages', () => {
     api.getModels.mockResolvedValue({
       page: 0, pageSize: 30, total: 1,
       items: [{
-        provider: 'openai', model: 'gpt-5.6-custom', sessionCount: 1,
+        model: 'gpt-5.6-custom', sessionCount: 1,
         inputTokens: 100, freshInputTokens: 80, cachedInputTokens: 20, outputTokens: 10,
         reasoningTokens: 5, totalTokens: 115, cacheHitRate: .2,
         estimatedCostMicrousd: undefined, unpricedEventCount: 1,

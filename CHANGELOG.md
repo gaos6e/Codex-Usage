@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1 — 2026-07-13
+
+- `codex-auto-review` 不再进入 Token、活跃时间、工具、模型或会话统计；解析器升级后会自动重放既有来源并清理历史派生数据。
+- 提供方统一显示为 `openai` 与 `custom`，包括将 `codex_local_access` 归入 `custom`，筛选顺序固定为 OpenAI 在前。
+- 模型筛选与价格表按模型版本和能力层级降序排列。
+- 模型用量及其导出改为跨提供方按模型合并。
+
 ## 2.1.0 — 2026-07-11
 
 - 新增 macOS 12+ Universal 应用与 DMG 候选构建，覆盖 Apple Silicon 与 Intel；未签名候选仅作为 GitHub Actions artifact。

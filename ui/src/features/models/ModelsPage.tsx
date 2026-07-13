@@ -68,8 +68,8 @@ export function ModelsPage({ filters }: { filters: UsageFilters }) {
         {!models.isError && (
         <div className="data-table-wrap"><table className="data-table">
           <thead><tr><th>{t('模型')}</th><th>{t('会话')}</th><th>{t('输入')}</th><th>{t('缓存')}</th><th>{t('输出')}</th><th>{t('推理')}</th><th>{t('命中率')}</th><th>{t('成本')}</th><th>{t('平均每百万 Token 成本')}</th><th>{t('最近使用')}</th></tr></thead>
-          <tbody>{models.data?.items.map((model) => <tr key={`${model.provider}-${model.model}`}>
-            <td><strong>{model.model}</strong><small>{model.provider}{model.model === 'codex-auto-review' ? ` · ${t('内部功能，不计入缺价')}` : model.pricingModelId ? ` · ${t('计价')} ${model.pricingModelId}` : ` · ${t('未匹配价格')}`}</small></td>
+          <tbody>{models.data?.items.map((model) => <tr key={model.model}>
+            <td><strong>{model.model}</strong><small>{model.pricingModelId ? `${t('计价')} ${model.pricingModelId}` : t('未匹配价格')}</small></td>
             <td>{model.sessionCount.toLocaleString()}</td><td>{formatTokens(model.freshInputTokens)}</td>
             <td>{formatTokens(model.cachedInputTokens)}</td><td>{formatTokens(model.outputTokens)}</td>
             <td>{formatTokens(model.reasoningTokens)}</td>

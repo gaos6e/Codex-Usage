@@ -1,7 +1,7 @@
 {
   "name": "chronolume",
   "productName": "Chronolume",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Private, offline-first insight into local Codex activity, usage, and cost.",
   "private": true,
   "scripts": {

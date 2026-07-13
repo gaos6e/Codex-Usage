@@ -4,6 +4,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::{ParsedRecord, SourceChange, StateSessionMetadata, StreamOutcome};
 use crate::error::AppResult;
+use crate::pricing::canonical_model_provider;
 
 pub(super) fn stream_state_db(
     change: &SourceChange,
@@ -33,10 +34,11 @@ pub(super) fn stream_state_db(
         }
         let created_at_ms = row.get::<_, i64>(4)?;
         let updated_at_ms = row.get::<_, i64>(5)?;
+        let provider = row.get::<_, String>(2)?;
         sink(ParsedRecord::StateSessionMetadata(StateSessionMetadata {
             session_id: row.get(0)?,
             cwd: row.get(1)?,
-            model_provider: row.get(2)?,
+            model_provider: canonical_model_provider(&provider),
             model_raw: row.get(3)?,
             created_at_ms,
             updated_at_ms,

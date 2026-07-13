@@ -626,6 +626,7 @@ impl UsageQuery {
                     "SELECT DISTINCT w.id, COALESCE(w.alias, w.display_name)
                      FROM session_daily_usage d JOIN workspaces w ON w.id = d.workspace_id
                      WHERE d.local_date BETWEEN ?1 AND ?2 AND w.ignored = 0
+                       AND LOWER(TRIM(d.model_raw)) <> 'codex-auto-review'
                      ORDER BY 2 COLLATE NOCASE",
                 )?;
                 statement
@@ -644,6 +645,7 @@ impl UsageQuery {
                 "d.local_date BETWEEN ? AND ?".to_string(),
                 "d.workspace_id IN (SELECT id FROM workspaces WHERE ignored = 0)".to_string(),
                 "TRIM(LOWER(d.model_provider)) NOT IN ('', 'unknown', '(unknown)')".to_string(),
+                "LOWER(TRIM(d.model_raw)) <> 'codex-auto-review'".to_string(),
             ];
             let mut provider_values = vec![
                 SqlValue::Text(range.start_date_string()),
@@ -662,17 +664,22 @@ impl UsageQuery {
             let providers = query_simple_options(
                 connection,
                 &format!(
-                    "SELECT DISTINCT d.model_provider, d.model_provider
+                    "SELECT {provider} AS provider, {provider}
                      FROM session_daily_usage d WHERE {}
-                     ORDER BY 1 COLLATE NOCASE",
-                    provider_clauses.join(" AND ")
+                     GROUP BY provider
+                     ORDER BY CASE provider WHEN 'openai' THEN 0 ELSE 1 END",
+                    provider_clauses.join(" AND "),
+                    provider = canonical_provider_sql("d.model_provider"),
                 ),
                 &provider_values,
             )?;
             let mut model_clauses = provider_clauses;
             let mut model_values = provider_values;
             if let Some(provider) = filters.model_provider.as_deref() {
-                model_clauses.push("d.model_provider = ?".to_string());
+                model_clauses.push(format!(
+                    "{} = ?",
+                    canonical_provider_sql("d.model_provider")
+                ));
                 model_values.push(SqlValue::Text(provider.to_string()));
             }
             model_clauses
@@ -680,9 +687,11 @@ impl UsageQuery {
             let models = query_simple_options(
                 connection,
                 &format!(
-                    "SELECT DISTINCT d.model_raw, d.model_raw
+                    "SELECT d.model_raw, d.model_raw
                      FROM session_daily_usage d WHERE {}
-                     ORDER BY 1 COLLATE NOCASE",
+                     GROUP BY d.model_raw
+                     ORDER BY model_strength_key(d.model_raw) DESC,
+                              d.model_raw COLLATE NOCASE ASC",
                     model_clauses.join(" AND ")
                 ),
                 &model_values,
@@ -884,6 +893,7 @@ fn rollup_conditions(
         format!("{alias}.local_date >= ?"),
         format!("{alias}.local_date <= ?"),
         format!("{alias}.workspace_id IN (SELECT id FROM workspaces WHERE ignored = 0)"),
+        format!("LOWER(TRIM({alias}.model_raw)) <> 'codex-auto-review'"),
     ];
     let mut values = vec![
         SqlValue::Text(range.start_date_string()),
@@ -894,7 +904,10 @@ fn rollup_conditions(
         values.push(SqlValue::Text(workspace.to_string()));
     }
     if let Some(provider) = filters.model_provider.as_deref() {
-        clauses.push(format!("{alias}.model_provider = ?"));
+        clauses.push(format!(
+            "{} = ?",
+            canonical_provider_sql(&format!("{alias}.model_provider"))
+        ));
         values.push(SqlValue::Text(provider.to_string()));
     }
     if let Some(model) = filters.model.as_deref() {
@@ -915,13 +928,26 @@ fn push_filters(
     clauses.push(format!(
         "{session_alias}.workspace_id IN (SELECT id FROM workspaces WHERE ignored = 0)"
     ));
+    if let Some(alias) = event_alias {
+        clauses.push(format!(
+            "LOWER(TRIM({alias}.model_raw)) <> 'codex-auto-review'"
+        ));
+    } else {
+        clauses.push(format!(
+            "LOWER(TRIM(COALESCE(NULLIF({session_alias}.primary_model_raw, ''), \
+             {session_alias}.latest_model_raw))) <> 'codex-auto-review'"
+        ));
+    }
     if let Some(workspace) = filters.workspace_id.as_deref() {
         clauses.push(format!("{session_alias}.workspace_id = ?"));
         values.push(SqlValue::Text(workspace.to_string()));
     }
     if let Some(provider) = filters.model_provider.as_deref() {
         let alias = event_alias.unwrap_or(session_alias);
-        clauses.push(format!("{alias}.model_provider = ?"));
+        clauses.push(format!(
+            "{} = ?",
+            canonical_provider_sql(&format!("{alias}.model_provider"))
+        ));
         values.push(SqlValue::Text(provider.to_string()));
     }
     if let Some(model) = filters.model.as_deref() {
@@ -969,6 +995,10 @@ fn query_simple_options(
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+fn canonical_provider_sql(column: &str) -> String {
+    format!("CASE WHEN LOWER(TRIM({column})) = 'openai' THEN 'openai' ELSE 'custom' END")
 }
 
 fn group_weekly(points: Vec<TrendPoint>, timezone: Tz) -> Vec<TrendPoint> {
@@ -1148,6 +1178,79 @@ mod tests {
         assert_eq!(snapshot.filter_options.workspaces[0].label, "repo");
         assert_eq!(snapshot.filter_options.providers[0].value, "openai");
         assert_eq!(snapshot.filter_options.models[0].value, "gpt-5.6-sol");
+    }
+
+    #[test]
+    fn dashboard_groups_non_openai_providers_and_excludes_auto_review() {
+        let query = seeded_query();
+        query
+            .store
+            .with_writer(|transaction| {
+                for (provider, model, tokens) in [
+                    ("codex_local_access", "gpt-5.5", 10_i64),
+                    ("custom", "gpt-5.6-terra", 10_i64),
+                    ("openai", "codex-auto-review", 1_000_i64),
+                ] {
+                    transaction.execute(
+                        "INSERT INTO session_daily_usage (
+                            session_id, local_date, timezone_id, day_start_utc_ms, day_end_utc_ms,
+                            workspace_id, model_provider, model_raw, pricing_model_id, archived,
+                            active_ms, input_tokens, fresh_input_tokens, cached_input_tokens,
+                            output_tokens, reasoning_tokens, total_tokens, priced_cost_microusd,
+                            priced_event_count, unpriced_event_count, last_activity_at_ms
+                         ) VALUES ('s1', '2026-07-10', 'UTC', 1783641600000, 1783728000000,
+                                   'w1', ?1, ?2, ?2, 0, 0, ?3, ?3, 0, 0, 0, ?3,
+                                   0, 0, 1, 1783641602000)",
+                        (provider, model, tokens),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        let mut filters = UsageFilters {
+            range: RangeSelection {
+                preset: RangePreset::Custom,
+                start_ms: Some(1_783_641_600_000),
+                end_ms: Some(1_783_814_400_000),
+                live_end: false,
+            },
+            workspace_id: None,
+            model_provider: None,
+            model: None,
+            archived: ArchiveFilter::All,
+        };
+        let snapshot = query.dashboard(&filters).unwrap();
+        assert_eq!(snapshot.hero.real_total_tokens, 140);
+        assert_eq!(
+            snapshot
+                .filter_options
+                .providers
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["openai", "custom"]
+        );
+        assert!(
+            snapshot
+                .filter_options
+                .models
+                .iter()
+                .all(|option| option.value != "codex-auto-review")
+        );
+
+        filters.model_provider = Some("custom".to_string());
+        let custom = query.dashboard(&filters).unwrap();
+        assert_eq!(custom.hero.real_total_tokens, 20);
+        assert_eq!(
+            custom
+                .filter_options
+                .models
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gpt-5.6-terra", "gpt-5.5"]
+        );
     }
 
     #[test]

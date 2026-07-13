@@ -7,7 +7,9 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::UsageStore;
 use crate::error::{AppError, AppResult};
-use crate::pricing::{PriceQuote, PriceableTokens, PricingCatalog, normalize_model_id};
+use crate::pricing::{
+    PriceQuote, PriceableTokens, PricingCatalog, is_statistics_excluded_model, normalize_model_id,
+};
 use crate::source::{
     ChangeAction, CodexSource, ModelChanged, PARSER_VERSION, ParsedRecord, SessionMetadata,
     SourceChange, SourceCheckpoint, SourceCursor, SourceKind, StateSessionMetadata, StreamOutcome,
@@ -817,6 +819,9 @@ fn apply_usage_event(
     context.model_provider = event.model_provider.clone();
     context.model_raw = event.model_raw.clone();
     context.pricing_model_id = event.pricing_model_id.clone();
+    if is_statistics_excluded_model(&event.model_raw) {
+        return Ok(());
+    }
     let session_id = context.session_id.as_deref().unwrap_or("unknown");
     let day = day_context(event.occurred_at_ms, timezone)?;
     let quote = pricing.quote(
@@ -929,6 +934,9 @@ fn apply_activity_segment(
     segment: crate::source::ActivitySegment,
     timezone: Tz,
 ) -> AppResult<()> {
+    if is_statistics_excluded_model(&context.model_raw) {
+        return Ok(());
+    }
     let session_id = context.session_id.as_deref().unwrap_or("unknown");
     let day = day_context(segment.started_at_ms, timezone)?;
     transaction.execute(
@@ -960,6 +968,9 @@ fn apply_tool_event(
     event: ToolEvent,
     timezone: Tz,
 ) -> AppResult<()> {
+    if is_statistics_excluded_model(&context.model_raw) {
+        return Ok(());
+    }
     let session_id = context.session_id.as_deref().unwrap_or("unknown");
     let day = day_context(event.occurred_at_ms, timezone)?;
     let event_key = format!(
@@ -1089,7 +1100,8 @@ fn recompute_session_summary(
                 COALESCE(SUM(reasoning_tokens), 0),
                 SUM(estimated_cost_microusd),
                 COALESCE(SUM(unpriced_event_count), 0)
-         FROM session_model_segments WHERE session_id = ?1",
+         FROM session_model_segments
+         WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'",
         [session_id],
         |row| {
             Ok((
@@ -1107,7 +1119,8 @@ fn recompute_session_summary(
         "SELECT COALESCE(SUM(active_ms), 0),
                 COALESCE(SUM(CASE WHEN method = 'lifecycle' THEN 1 ELSE 0 END), 0),
                 COUNT(*)
-         FROM activity_segments WHERE session_id = ?1",
+         FROM activity_segments
+         WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'",
         [session_id],
         |row| {
             Ok((
@@ -1119,11 +1132,17 @@ fn recompute_session_summary(
     )?;
     let bounds = transaction.query_row(
         "SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM (
-            SELECT started_at_ms AS timestamp_ms FROM session_model_segments WHERE session_id = ?1
-            UNION ALL SELECT ended_at_ms FROM session_model_segments WHERE session_id = ?1 AND ended_at_ms IS NOT NULL
-            UNION ALL SELECT started_at_ms FROM activity_segments WHERE session_id = ?1
-            UNION ALL SELECT ended_at_ms FROM activity_segments WHERE session_id = ?1
-            UNION ALL SELECT occurred_at_ms FROM usage_events WHERE session_id = ?1
+            SELECT started_at_ms AS timestamp_ms FROM session_model_segments
+                WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+            UNION ALL SELECT ended_at_ms FROM session_model_segments
+                WHERE session_id = ?1 AND ended_at_ms IS NOT NULL
+                  AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+            UNION ALL SELECT started_at_ms FROM activity_segments
+                WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+            UNION ALL SELECT ended_at_ms FROM activity_segments
+                WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+            UNION ALL SELECT occurred_at_ms FROM usage_events
+                WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
             UNION ALL SELECT occurred_at_ms FROM tool_events WHERE session_id = ?1
          )",
         [session_id],
@@ -1139,7 +1158,8 @@ fn recompute_session_summary(
     let primary = transaction
         .query_row(
             "SELECT model_provider, model_raw, COALESCE(pricing_model_id, '')
-             FROM session_model_segments WHERE session_id = ?1
+             FROM session_model_segments
+             WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
              GROUP BY model_provider, model_raw, pricing_model_id
              ORDER BY SUM(input_tokens + output_tokens) DESC, MAX(segment_index) DESC
              LIMIT 1",
@@ -1260,7 +1280,7 @@ fn rebuild_session_daily(
                          THEN 1 ELSE 0 END),
                 MAX(e.occurred_at_ms)
          FROM usage_events e JOIN sessions s ON s.id = e.session_id
-         WHERE e.session_id = ?1
+         WHERE e.session_id = ?1 AND LOWER(TRIM(e.model_raw)) <> 'codex-auto-review'
          GROUP BY e.session_id, e.local_date, e.timezone_id, s.workspace_id,
                   e.model_provider, e.model_raw, e.pricing_model_id, s.archived",
         [session_id],
@@ -1275,7 +1295,9 @@ fn rebuild_session_daily(
         let mut statement = transaction.prepare(
             "SELECT started_at_ms, ended_at_ms, active_ms, model_provider,
                     model_raw, COALESCE(pricing_model_id, '')
-             FROM activity_segments WHERE session_id = ?1 ORDER BY started_at_ms",
+             FROM activity_segments
+             WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+             ORDER BY started_at_ms",
         )?;
         statement
             .query_map([session_id], |row| {
@@ -1666,6 +1688,67 @@ mod tests {
                         .query_row("SELECT status FROM source_files", [], |row| row.get(0))?;
                 assert_eq!(session_count, 0);
                 assert_eq!(status, "ready");
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn auto_review_records_are_not_written_to_usage_activity_or_tool_statistics() {
+        let codex = tempfile::tempdir().unwrap();
+        let sessions = codex.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let content = [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"auto-review","cwd":"C:/workspace/demo","model_provider":"codex_local_access"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"turn_context","payload":{"model":"codex-auto-review"}}),
+            json!({"timestamp":"2026-07-10T01:00:02Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}),
+            json!({"timestamp":"2026-07-10T01:00:03Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"ignored"}}),
+            json!({"timestamp":"2026-07-10T01:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":10,"reasoning_output_tokens":2}}}}),
+            json!({"timestamp":"2026-07-10T01:00:09Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","duration_ms":7000}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        std::fs::write(sessions.join("rollout-auto-review.jsonl"), content).unwrap();
+
+        let store = UsageStore::open_in_memory().unwrap();
+        let source = FsCodexSource::new(codex.path());
+        let plan = source.plan(&[]).unwrap();
+        store
+            .apply_source_change(
+                &source,
+                &plan.changes[0],
+                &PricingCatalog::default(),
+                chrono_tz::UTC,
+                30 * 60 * 1000,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+
+        store
+            .with_reader(|connection| {
+                for table in [
+                    "usage_events",
+                    "activity_segments",
+                    "tool_events",
+                    "session_daily_usage",
+                    "session_daily_tool",
+                ] {
+                    let count: i64 = connection.query_row(
+                        &format!("SELECT COUNT(*) FROM {table}"),
+                        [],
+                        |row| row.get(0),
+                    )?;
+                    assert_eq!(count, 0, "{table} should not contain auto-review data");
+                }
+                let provider: String = connection.query_row(
+                    "SELECT model_provider FROM sessions WHERE id = 'auto-review'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(provider, "custom");
                 Ok(())
             })
             .unwrap();

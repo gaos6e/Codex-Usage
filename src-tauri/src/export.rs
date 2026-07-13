@@ -250,13 +250,12 @@ fn export_models(format: ExportFormat, rows: Vec<ModelRow>) -> AppResult<ExportO
         return json_output_with_count(rows);
     }
     let mut csv = String::from(
-        "provider,model,pricing_id,sessions,input_tokens,cached_tokens,output_tokens,reasoning_tokens,total_tokens,cost_microusd,unpriced_events,last_used_ms\r\n",
+        "model,pricing_id,sessions,input_tokens,cached_tokens,output_tokens,reasoning_tokens,total_tokens,cost_microusd,unpriced_events,last_used_ms\r\n",
     );
     for row in &rows {
         push_csv_row(
             &mut csv,
             &[
-                &row.provider,
                 &row.model,
                 row.pricing_model_id.as_deref().unwrap_or(""),
                 &row.session_count.to_string(),
