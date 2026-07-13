@@ -183,7 +183,7 @@ jobs:
           xcrun stapler validate "$APP"
           hdiutil verify "$DMG"
           xcrun stapler validate "$DMG"
-          bash ./scripts/verify-macos-bundle.sh
+          MACOS_SIGNING_MODE=signed bash ./scripts/verify-macos-bundle.sh
           (cd artifacts/windows && shasum -a 256 -c SHA256SUMS-windows.txt)
           (cd artifacts/macos && shasum -a 256 -c SHA256SUMS-macos.txt)
 

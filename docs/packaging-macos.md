@@ -4,7 +4,7 @@ Chronolume 2.1.0 的 macOS 目标是 macOS 12.0+ Universal 应用，同时包含
 
 ## 阶段 A：未签名候选
 
-没有 Apple Developer 账号和 Mac 时，只允许生成 GitHub Actions artifact。手动运行 `Build unsigned macOS candidate` 工作流会：
+没有 Apple Developer 凭据和自有 Mac 时，`Build and upload unsigned macOS candidate` 工作流会在 Release 发布后自动运行，也可手动指定已有 Release 标签运行。它会：
 
 1. 在 `macos-14` runner 安装 `aarch64-apple-darwin` 与 `x86_64-apple-darwin`。
 2. 执行前端检查、Rust 测试和锁文件驱动的许可证生成。
@@ -24,7 +24,7 @@ npm run tauri:build:macos -- --no-sign --ci
 bash ./scripts/verify-macos-bundle.sh
 ```
 
-未签名 `.app`/`.dmg` 只用于内部验证，不上传正式 GitHub Release，也不向用户提供绕过 Gatekeeper 的操作说明。
+未签名 `.app`/`.dmg` 只用于测试，文件名必须带 `unsigned`。工作流会把通过验证的候选追加到对应 GitHub Release，同时保留短期 Actions artifact；这些资产不视为受信任的正式 macOS 分发，也不向用户提供绕过 Gatekeeper 的操作说明。
 
 ### 2.1.0 阶段 A 构建记录
 

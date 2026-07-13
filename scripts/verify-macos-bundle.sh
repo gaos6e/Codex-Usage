@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 bundle_root="${1:-$repo_root/src-tauri/target/universal-apple-darwin/release/bundle}"
 artifact_root="${2:-$repo_root/artifacts/macos}"
+expected_version="${EXPECTED_VERSION:-$(node -p "require('$repo_root/package.json').version")}"
+signing_mode="${MACOS_SIGNING_MODE:-unsigned}"
 app="$bundle_root/macos/Chronolume.app"
 dmg="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
 
@@ -36,7 +38,7 @@ minimum_system="$(plist_value LSMinimumSystemVersion "$app/Contents/Info.plist")
 bundle_name="$(plist_value CFBundleDisplayName "$app/Contents/Info.plist")"
 bundle_executable="$(plist_value CFBundleExecutable "$app/Contents/Info.plist")"
 [ "$bundle_id" = "com.gaos6e.chronolume" ] || fail "Unexpected CFBundleIdentifier: $bundle_id"
-[ "$version" = "2.1.0" ] || fail "Unexpected CFBundleShortVersionString: $version"
+[ "$version" = "$expected_version" ] || fail "Unexpected CFBundleShortVersionString: $version (expected $expected_version)"
 [ "$minimum_system" = "12.0" ] || fail "Unexpected LSMinimumSystemVersion: $minimum_system"
 [ "$bundle_name" = "Chronolume" ] || fail "Unexpected CFBundleDisplayName: $bundle_name"
 [ "$bundle_executable" = "chronolume" ] || fail "Unexpected CFBundleExecutable: $bundle_executable"
@@ -105,9 +107,23 @@ hdiutil detach "$mount_root" -quiet
 
 rm -rf "$artifact_root"
 mkdir -p "$artifact_root"
-archive="$artifact_root/Chronolume-${version}-macos-universal.app.zip"
+case "$signing_mode" in
+  signed)
+    archive="$artifact_root/Chronolume-${version}-macos-universal.app.zip"
+    staged_dmg="$artifact_root/Chronolume_${version}_universal.dmg"
+    signing_summary="Developer ID signing, notarization, Gatekeeper, and stapling are verified by the formal release workflow"
+    ;;
+  unsigned)
+    archive="$artifact_root/Chronolume-${version}-macos-universal-unsigned.app.zip"
+    staged_dmg="$artifact_root/Chronolume_${version}_universal-unsigned.dmg"
+    signing_summary="Unsigned candidate; not notarized and not intended as a trusted macOS distribution"
+    ;;
+  *)
+    fail "Unsupported MACOS_SIGNING_MODE: $signing_mode"
+    ;;
+esac
 ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
-cp "$dmg" "$artifact_root/"
+cp "$dmg" "$staged_dmg"
 
 cat > "$artifact_root/verification-macos.txt" <<EOF
 Bundle ID: $bundle_id
@@ -121,10 +137,11 @@ No-~/.codex launch smoke test: passed
 Analytics data directory: $expected_database
 Bundle-identifier data-directory nesting scan: passed
 Bundled database/log/auth.json scan: passed
-Signing: candidate workflow uses --no-sign; formal release workflow verifies Developer ID, Gatekeeper, notarization, and stapling separately
+Source commit: ${GITHUB_SHA:-local}
+Signing: $signing_summary
 EOF
 
 (
   cd "$artifact_root"
-  shasum -a 256 "$(basename "$archive")" "$(basename "$dmg")" > SHA256SUMS-macos.txt
+  shasum -a 256 "$(basename "$archive")" "$(basename "$staged_dmg")" > SHA256SUMS-macos.txt
 )
