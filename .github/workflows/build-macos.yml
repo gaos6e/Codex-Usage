@@ -1,13 +1,14 @@
-name: Build unsigned macOS candidate
+name: Build and upload unsigned macOS candidate
 
 on:
   workflow_dispatch:
-  # The workflow is new on this implementation branch, so GitHub cannot dispatch it
-  # manually until it also exists on the default branch. This branch-scoped trigger
-  # produces the required first Universal candidate without broadening release gates.
-  push:
-    branches:
-      - codex/macos-support
+    inputs:
+      release_tag:
+        description: Optional existing Release tag to receive the verified unsigned assets
+        required: false
+        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -15,13 +16,19 @@ permissions:
 jobs:
   build-universal:
     runs-on: macos-14
+    permissions:
+      contents: write
     env:
       CARGO_TERM_COLOR: always
       MACOSX_DEPLOYMENT_TARGET: "12.0"
+      MACOS_SIGNING_MODE: unsigned
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -34,6 +41,24 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Verify optional Release target
+        if: ${{ env.RELEASE_TAG != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          test "$RELEASE_TAG" = "v$version"
+          gh release view "$RELEASE_TAG" >/dev/null
+
+          tag_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
+          changed_app_paths="$(git diff --name-only "$tag_commit"...HEAD -- package.json package-lock.json src-tauri ui)"
+          if [ -n "$changed_app_paths" ]; then
+            printf 'Release source differs from %s in app-affecting paths:\n%s\n' "$RELEASE_TAG" "$changed_app_paths" >&2
+            exit 1
+          fi
 
       - name: Verify source and tests
         run: |
@@ -59,7 +84,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: chronolume-2.1.0-macos-unverified-debug
+          name: chronolume-macos-unverified-debug-${{ github.run_id }}
           path: src-tauri/target/universal-apple-darwin/release/bundle
           if-no-files-found: ignore
           retention-days: 3
@@ -71,3 +96,10 @@ jobs:
           path: artifacts/macos/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Append verified unsigned assets to GitHub Release
+        if: ${{ env.RELEASE_TAG != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" artifacts/macos/* --clobber

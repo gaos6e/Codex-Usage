@@ -72,11 +72,11 @@ Chronolume 是为 OpenAI Codex 用户打造的 Windows 与 macOS 本地洞察应
 
 ## 从下载到看见数据
 
-1. Windows 用户前往 [GitHub Releases](https://github.com/gaos6e/Chronolume/releases/latest)，选择 NSIS 安装器或便携 ZIP。macOS 正式下载将在 Developer ID 签名、公证和真机验收完成后开放。
+1. Windows 用户前往 [GitHub Releases](https://github.com/gaos6e/Chronolume/releases/latest)，选择 NSIS 安装器或便携 ZIP。每次发布后，GitHub 的云端 Mac 也会自动构建并追加文件名带 `unsigned` 的 Universal `.app.zip` 与 `.dmg` 候选；它们只用于测试，macOS 正式下载将在 Developer ID 签名、公证和真机验收完成后开放。
 2. 启动 Chronolume。应用会以只读方式扫描 `~/.codex`，首次建立索引，之后只做增量同步。
 3. 选择时间范围、工作区、提供方、模型和会话状态，开始查看或导出自己的 Codex 使用图景。
 
-Windows x64 版本依赖 WebView2 Runtime。安装器尚未签名，在签名信誉建立前 Windows SmartScreen 可能显示提醒。macOS 2.1.0 阶段 A 只生成未签名 Universal `.app`/`.dmg` GitHub Actions artifact，不作为正式 Release；正式分发必须先完成 Developer ID 签名、Apple 公证、staple、Gatekeeper 验证和外部 Mac 验收。
+Windows x64 版本依赖 WebView2 Runtime。安装器尚未签名，在签名信誉建立前 Windows SmartScreen 可能显示提醒。macOS 未签名 Universal 候选会作为文件名明确带 `unsigned` 的 Release 资产和短期 GitHub Actions artifact 自动生成，但不视为受信任的正式 macOS 分发；正式分发必须先完成 Developer ID 签名、Apple 公证、staple、Gatekeeper 验证和外部 Mac 验收。
 
 ## 核心能力
 
