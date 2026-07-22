@@ -759,12 +759,15 @@ impl UsageQuery {
             )?;
             let model_segments = {
                 let mut statement = connection.prepare(
-                    &format!("SELECT segment_index, started_at_ms, ended_at_ms, {provider},
-                            model_raw, input_tokens, cached_input_tokens, output_tokens,
-                            reasoning_tokens, estimated_cost_microusd, unpriced_event_count
+                    &format!("SELECT MIN(segment_index), MIN(started_at_ms), MAX(ended_at_ms),
+                            {provider}, model_raw, SUM(input_tokens),
+                            SUM(cached_input_tokens), SUM(output_tokens),
+                            SUM(reasoning_tokens), SUM(estimated_cost_microusd),
+                            SUM(unpriced_event_count)
                      FROM session_model_segments
                      WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
-                     ORDER BY segment_index",
+                     GROUP BY model_provider, model_raw
+                     ORDER BY MIN(started_at_ms), model_raw",
                         provider = canonical_provider_sql("model_provider")
                     ),
                 )?;

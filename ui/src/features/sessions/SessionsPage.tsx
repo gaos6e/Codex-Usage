@@ -81,7 +81,7 @@ export function SessionsPage({ filters }: { filters: UsageFilters }) {
             <p>{t('仅显示结构化统计；不读取或显示对话正文。')}</p>
             <div className="detail-metrics">
               <div><span>Token</span><strong>{formatTokens(detail.data.session.totalTokens)}</strong></div>
-              <div><span>{t('模型切换')}</span><strong>{detail.data.modelSegments.length}</strong></div>
+              <div><span>{t('使用模型')}</span><strong>{detail.data.modelSegments.length}</strong></div>
               <div><span>{t('工具类别')}</span><strong>{detail.data.tools.length}</strong></div>
               <div><span>{t('保留事件')}</span><strong>{detail.data.retainedEventCount}</strong></div>
             </div>

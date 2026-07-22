@@ -181,6 +181,8 @@ impl UsageStore {
                 None
             };
             if let Some(session_id) = session_id.as_deref() {
+                rebuild_session_model_segments(transaction, session_id)
+                    .map_err(|error| ingest_stage("model_segments", error))?;
                 rebuild_fallback_activity(
                     transaction,
                     session_id,
@@ -769,27 +771,6 @@ fn apply_model_change(
     model: ModelChanged,
 ) -> AppResult<()> {
     let session_id = context.session_id.as_deref().unwrap_or("unknown");
-    let started_at = model.occurred_at_ms.unwrap_or(0);
-    transaction.execute(
-        "UPDATE session_model_segments
-         SET ended_at_ms = ?2
-         WHERE session_id = ?1 AND ended_at_ms IS NULL AND segment_index <> ?3",
-        params![session_id, started_at, to_i64(model.event_ordinal)],
-    )?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO session_model_segments (
-            session_id, segment_index, started_at_ms, model_provider,
-            model_raw, pricing_model_id
-         ) VALUES (?1, ?2, ?3, ?4, ?5, NULLIF(?6, ''))",
-        params![
-            session_id,
-            to_i64(model.event_ordinal),
-            started_at,
-            model.model_provider,
-            model.model_raw,
-            model.pricing_model_id,
-        ],
-    )?;
     context.model_provider = model.model_provider;
     context.model_raw = model.model_raw;
     context.pricing_model_id = model.pricing_model_id;
@@ -834,7 +815,7 @@ fn apply_usage_event(
             cache_write: 0,
         },
     );
-    let (cost, revision, pricing_id, cost_excluded) = match quote {
+    let (cost, revision, pricing_id, _cost_excluded) = match quote {
         PriceQuote::Priced {
             pricing_id,
             revision,
@@ -882,49 +863,181 @@ fn apply_usage_event(
     if inserted == 0 {
         return Ok(());
     }
+    Ok(())
+}
 
+#[derive(Debug)]
+struct ModelSegmentAccumulator {
+    source_file_id: i64,
+    model_provider: String,
+    model_raw: String,
+    pricing_model_id: String,
+    started_at_ms: i64,
+    ended_at_ms: i64,
+    input_tokens: i64,
+    cached_input_tokens: i64,
+    output_tokens: i64,
+    reasoning_tokens: i64,
+    estimated_cost_microusd: Option<i64>,
+    unpriced_event_count: i64,
+}
+
+impl ModelSegmentAccumulator {
+    fn matches(&self, source_file_id: i64, provider: &str, model: &str, pricing_id: &str) -> bool {
+        self.source_file_id == source_file_id
+            && self.model_provider == provider
+            && self.model_raw == model
+            && self.pricing_model_id == pricing_id
+    }
+
+    fn add(
+        &mut self,
+        occurred_at_ms: i64,
+        input_tokens: i64,
+        cached_input_tokens: i64,
+        output_tokens: i64,
+        reasoning_tokens: i64,
+        estimated_cost_microusd: Option<i64>,
+    ) {
+        self.started_at_ms = self.started_at_ms.min(occurred_at_ms);
+        self.ended_at_ms = self.ended_at_ms.max(occurred_at_ms);
+        self.input_tokens = self.input_tokens.saturating_add(input_tokens);
+        self.cached_input_tokens = self.cached_input_tokens.saturating_add(cached_input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(reasoning_tokens);
+        if let Some(cost) = estimated_cost_microusd {
+            self.estimated_cost_microusd = Some(
+                self.estimated_cost_microusd
+                    .unwrap_or(0)
+                    .saturating_add(cost),
+            );
+        } else {
+            self.unpriced_event_count = self.unpriced_event_count.saturating_add(1);
+        }
+    }
+}
+
+/// Rebuild from event-level attribution after every source update. A single
+/// Codex session can span several JSONL files whose local event ordinals
+/// overlap, so incrementally updating the session's latest segment can attach
+/// one source's model usage to another source's model change.
+fn rebuild_session_model_segments(
+    transaction: &Transaction<'_>,
+    session_id: &str,
+) -> AppResult<()> {
+    let mut segments = Vec::new();
+    {
+        let mut statement = transaction.prepare(
+            "SELECT source_file_id, occurred_at_ms, model_provider, model_raw,
+                    COALESCE(pricing_model_id, ''), input_tokens, cached_input_tokens,
+                    output_tokens, reasoning_tokens, estimated_cost_microusd
+             FROM usage_events
+             WHERE session_id = ?1 AND LOWER(TRIM(model_raw)) <> 'codex-auto-review'
+             ORDER BY source_file_id, event_ordinal, id",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+            ))
+        })?;
+        for row in rows {
+            let (
+                source_file_id,
+                occurred_at_ms,
+                model_provider,
+                model_raw,
+                pricing_model_id,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                estimated_cost_microusd,
+            ) = row?;
+            if let Some(segment) =
+                segments
+                    .last_mut()
+                    .filter(|segment: &&mut ModelSegmentAccumulator| {
+                        segment.matches(
+                            source_file_id,
+                            &model_provider,
+                            &model_raw,
+                            &pricing_model_id,
+                        )
+                    })
+            {
+                segment.add(
+                    occurred_at_ms,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_tokens,
+                    estimated_cost_microusd,
+                );
+            } else {
+                segments.push(ModelSegmentAccumulator {
+                    source_file_id,
+                    model_provider,
+                    model_raw,
+                    pricing_model_id,
+                    started_at_ms: occurred_at_ms,
+                    ended_at_ms: occurred_at_ms,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    reasoning_tokens,
+                    estimated_cost_microusd,
+                    unpriced_event_count: i64::from(estimated_cost_microusd.is_none()),
+                });
+            }
+        }
+    }
+
+    segments.sort_by_key(|segment| {
+        (
+            segment.started_at_ms,
+            segment.ended_at_ms,
+            segment.source_file_id,
+        )
+    });
     transaction.execute(
-        "INSERT INTO session_model_segments (
-            session_id, segment_index, started_at_ms, model_provider,
-            model_raw, pricing_model_id
-         ) SELECT ?1, ?2, ?3, ?4, ?5, NULLIF(?6, '')
-           WHERE NOT EXISTS (
-             SELECT 1 FROM session_model_segments WHERE session_id = ?1
-           )",
-        params![
-            session_id,
-            to_i64(event.event_ordinal),
-            event.occurred_at_ms,
-            event.model_provider,
-            event.model_raw,
-            pricing_id,
-        ],
+        "DELETE FROM session_model_segments WHERE session_id = ?1",
+        [session_id],
     )?;
-    transaction.execute(
-        "UPDATE session_model_segments SET
-            input_tokens = input_tokens + ?2,
-            cached_input_tokens = cached_input_tokens + ?3,
-            output_tokens = output_tokens + ?4,
-            reasoning_tokens = reasoning_tokens + ?5,
-            estimated_cost_microusd = CASE
-                WHEN ?6 IS NULL THEN estimated_cost_microusd
-                ELSE COALESCE(estimated_cost_microusd, 0) + ?6 END,
-            unpriced_event_count = unpriced_event_count
-                + CASE WHEN ?6 IS NULL AND ?7 = 0 THEN 1 ELSE 0 END
-         WHERE id = (
-            SELECT id FROM session_model_segments
-            WHERE session_id = ?1 ORDER BY segment_index DESC LIMIT 1
-         )",
-        params![
-            session_id,
-            to_i64(event.input_tokens),
-            to_i64(event.cached_input_tokens),
-            to_i64(event.output_tokens),
-            to_i64(event.reasoning_tokens),
-            cost,
-            i64::from(cost_excluded),
-        ],
-    )?;
+    for (segment_index, segment) in segments.into_iter().enumerate() {
+        transaction.execute(
+            "INSERT INTO session_model_segments (
+                session_id, segment_index, started_at_ms, ended_at_ms,
+                model_provider, model_raw, pricing_model_id, input_tokens,
+                cached_input_tokens, output_tokens, reasoning_tokens,
+                estimated_cost_microusd, unpriced_event_count
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULLIF(?7, ''), ?8, ?9,
+                       ?10, ?11, ?12, ?13)",
+            params![
+                session_id,
+                segment_index as i64,
+                segment.started_at_ms,
+                segment.ended_at_ms,
+                segment.model_provider,
+                segment.model_raw,
+                segment.pricing_model_id,
+                segment.input_tokens,
+                segment.cached_input_tokens,
+                segment.output_tokens,
+                segment.reasoning_tokens,
+                segment.estimated_cost_microusd,
+                segment.unpriced_event_count,
+            ],
+        )?;
+    }
     Ok(())
 }
 
@@ -1593,6 +1706,18 @@ mod tests {
             + "\n"
     }
 
+    fn session_with_model_usage(model: &str, input: u64, cached: u64, output: u64) -> String {
+        [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"shared-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"model":model,"total_token_usage":{"input_tokens":input,"cached_input_tokens":cached,"output_tokens":output,"reasoning_output_tokens":0}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n"
+    }
+
     #[test]
     fn day_boundaries_follow_dst_instead_of_assuming_24_hours() {
         let timezone: Tz = "America/New_York".parse().unwrap();
@@ -1749,6 +1874,86 @@ mod tests {
                     |row| row.get(0),
                 )?;
                 assert_eq!(provider, "custom");
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn model_segments_match_event_models_when_a_session_spans_multiple_sources() {
+        let codex = tempfile::tempdir().unwrap();
+        let sessions = codex.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("rollout-sol.jsonl"),
+            session_with_model_usage("gpt-5.6-sol", 100, 40, 20),
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.join("rollout-terra.jsonl"),
+            session_with_model_usage("gpt-5.6-terra", 200, 50, 60),
+        )
+        .unwrap();
+
+        let store = UsageStore::open_in_memory().unwrap();
+        let source = FsCodexSource::new(codex.path());
+        for change in source.plan(&[]).unwrap().changes {
+            store
+                .apply_source_change(
+                    &source,
+                    &change,
+                    &PricingCatalog::default(),
+                    chrono_tz::UTC,
+                    30 * 60 * 1000,
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+        }
+
+        store
+            .with_reader(|connection| {
+                let models: Vec<(String, i64, i64, i64, i64)> = connection
+                    .prepare(
+                        "SELECT model_raw, SUM(input_tokens), SUM(cached_input_tokens),
+                                SUM(output_tokens), SUM(reasoning_tokens)
+                         FROM session_model_segments
+                         WHERE session_id = 'shared-session'
+                         GROUP BY model_raw ORDER BY model_raw",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    })?
+                    .collect::<Result<_, _>>()?;
+                assert_eq!(
+                    models,
+                    vec![
+                        ("gpt-5.6-sol".to_string(), 100, 40, 20, 0),
+                        ("gpt-5.6-terra".to_string(), 200, 50, 60, 0),
+                    ]
+                );
+                let mismatches: i64 = connection.query_row(
+                    "WITH event_totals AS (
+                         SELECT model_raw, SUM(total_tokens) AS tokens
+                         FROM usage_events WHERE session_id = 'shared-session'
+                         GROUP BY model_raw
+                     ), segment_totals AS (
+                         SELECT model_raw, SUM(input_tokens + output_tokens) AS tokens
+                         FROM session_model_segments WHERE session_id = 'shared-session'
+                         GROUP BY model_raw
+                     )
+                     SELECT COUNT(*) FROM event_totals e
+                     LEFT JOIN segment_totals s USING (model_raw)
+                     WHERE e.tokens <> COALESCE(s.tokens, 0)",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(mismatches, 0);
                 Ok(())
             })
             .unwrap();

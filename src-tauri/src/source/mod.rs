@@ -14,7 +14,10 @@ use walkdir::WalkDir;
 use crate::activity::{OperationKind, ToolCategory};
 use crate::error::{AppError, AppResult};
 
-pub const PARSER_VERSION: i64 = 2;
+// v3 rebuilds model segments from each usage event. Older checkpoints must be
+// replayed so their persisted segment summaries cannot retain cross-source
+// model attribution.
+pub const PARSER_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
