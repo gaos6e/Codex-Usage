@@ -14,10 +14,11 @@ use walkdir::WalkDir;
 use crate::activity::{OperationKind, ToolCategory};
 use crate::error::{AppError, AppResult};
 
-// v3 rebuilds model segments from each usage event. Older checkpoints must be
-// replayed so their persisted segment summaries cannot retain cross-source
-// model attribution.
-pub const PARSER_VERSION: i64 = 3;
+// v6 rebuilds derived session summaries after the v5 fork-ownership upgrade.
+// Replaying every older JSONL checkpoint removes stale model and daily
+// aggregates that can otherwise remain internally consistent but disagree
+// with their retained source events.
+pub const PARSER_VERSION: i64 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -72,6 +73,9 @@ pub struct SourceCursor {
     pub open_task_turn_id: Option<String>,
     pub open_task_started_at_ms: Option<i64>,
     pub logs_rowid_watermark: u64,
+    /// The safe offset is inside a copied parent transcript and must skip
+    /// records until the owning fork's session metadata appears again.
+    pub contains_embedded_history: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -541,23 +545,25 @@ fn plan_existing(
     }
     let moved =
         discovered.relative_path != checkpoint.relative_path || discovered.kind != checkpoint.kind;
-    let unchanged = discovered.file_size == checkpoint.file_size
+    let unchanged_content = discovered.file_size == checkpoint.file_size
         && discovered.mtime_ns == checkpoint.mtime_ns
-        && checkpoint.cursor.safe_offset >= discovered.file_size
-        && checkpoint.parser_version == PARSER_VERSION;
-    if unchanged {
-        return Ok(moved.then(|| {
-            discovered.as_change(
-                ChangeAction::MetadataOnly,
-                checkpoint.cursor.clone(),
-                checkpoint.prefix_hash.clone(),
-                checkpoint.session_id.clone(),
-            )
-        }));
+        && checkpoint.cursor.safe_offset >= discovered.file_size;
+    let parser_upgrade_requires_replay = checkpoint.parser_version != PARSER_VERSION;
+    if unchanged_content && !parser_upgrade_requires_replay {
+        return Ok(
+            (moved || checkpoint.parser_version != PARSER_VERSION).then(|| {
+                discovered.as_change(
+                    ChangeAction::MetadataOnly,
+                    checkpoint.cursor.clone(),
+                    checkpoint.prefix_hash.clone(),
+                    checkpoint.session_id.clone(),
+                )
+            }),
+        );
     }
 
     let current_prefix = prefix_hash(&discovered.path)?;
-    let requires_replay = checkpoint.parser_version != PARSER_VERSION
+    let requires_replay = parser_upgrade_requires_replay
         || discovered.file_size < checkpoint.cursor.safe_offset
         || checkpoint.prefix_hash.is_empty()
         || current_prefix != checkpoint.prefix_hash;
@@ -668,6 +674,59 @@ mod tests {
         assert_eq!(moved.changes.len(), 1);
         assert_eq!(moved.changes[0].kind(), SourceKind::ArchivedSession);
         assert_ne!(moved.changes[0].action(), ChangeAction::Missing);
+    }
+
+    #[test]
+    fn parser_v3_upgrade_replays_normal_and_forked_rollouts() {
+        let directory = tempfile::tempdir().unwrap();
+        let sessions = directory.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("rollout-normal.jsonl"),
+            b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"normal\"}}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.join("rollout-fork.jsonl"),
+            b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"child\",\"session_id\":\"parent\",\"forked_from_id\":\"parent\"}}\n",
+        )
+        .unwrap();
+        let source = FsCodexSource::new(directory.path());
+        let checkpoints = source
+            .plan(&[])
+            .unwrap()
+            .changes
+            .into_iter()
+            .map(|change| SourceCheckpoint {
+                source_key: change.source_key,
+                relative_path: change.relative_path,
+                kind: change.kind,
+                session_id: None,
+                file_size: change.file_size,
+                mtime_ns: change.mtime_ns,
+                prefix_hash: change.prefix_hash,
+                parser_version: 3,
+                cursor: SourceCursor {
+                    safe_offset: change.file_size,
+                    complete_line_offset: change.file_size,
+                    ..SourceCursor::default()
+                },
+            })
+            .collect::<Vec<_>>();
+
+        let upgraded = source.plan(&checkpoints).unwrap();
+        let normal = upgraded
+            .changes
+            .iter()
+            .find(|change| change.relative_path.ends_with("rollout-normal.jsonl"))
+            .unwrap();
+        let fork = upgraded
+            .changes
+            .iter()
+            .find(|change| change.relative_path.ends_with("rollout-fork.jsonl"))
+            .unwrap();
+        assert_eq!(normal.action(), ChangeAction::Replay);
+        assert_eq!(fork.action(), ChangeAction::Replay);
     }
 
     #[test]

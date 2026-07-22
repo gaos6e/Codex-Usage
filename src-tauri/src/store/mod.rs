@@ -19,7 +19,13 @@ use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use crate::error::{AppError, AppResult};
 use crate::pricing::model_strength_sort_key;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../../migrations/0001_initial.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("../../migrations/0001_initial.sql")),
+    (
+        2,
+        include_str!("../../migrations/0002_embedded_transcript.sql"),
+    ),
+];
 
 /// v2 分析库的深 Module。连接配置、迁移、池化和事务策略留在实现内部。
 #[derive(Clone)]
@@ -180,7 +186,7 @@ mod tests {
     fn creates_required_schema_and_passes_integrity_check() {
         let store = UsageStore::open_in_memory().expect("open test database");
 
-        assert_eq!(store.schema_version().expect("schema version"), 1);
+        assert_eq!(store.schema_version().expect("schema version"), 2);
         assert!(store.integrity_check().expect("integrity check"));
 
         let required = [
@@ -225,5 +231,42 @@ mod tests {
                 Ok(())
             })
             .expect("read journal mode");
+    }
+
+    #[test]
+    fn migrates_v1_database_with_embedded_transcript_checkpoint() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("usage.sqlite3");
+        let connection = Connection::open(&path).expect("open v1 database");
+        connection
+            .execute_batch(include_str!("../../migrations/0001_initial.sql"))
+            .expect("create v1 schema");
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at_ms INTEGER NOT NULL
+                 ) STRICT;
+                 INSERT INTO schema_migrations(version, name, applied_at_ms)
+                 VALUES (1, 'migration_0001', 0);",
+            )
+            .expect("mark v1 migration");
+        drop(connection);
+
+        let store = UsageStore::open(&path).expect("migrate store");
+        assert_eq!(store.schema_version().expect("schema version"), 2);
+        store
+            .with_reader(|connection| {
+                let column_exists: i64 = connection.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('source_files')
+                     WHERE name = 'contains_embedded_history'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(column_exists, 1);
+                Ok(())
+            })
+            .expect("inspect migrated source schema");
     }
 }

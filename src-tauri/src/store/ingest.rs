@@ -20,6 +20,7 @@ use crate::source::{
 pub struct FileApplyResult {
     pub source_key: String,
     pub session_id: Option<String>,
+    pub displaced_session_id: Option<String>,
     pub bytes_read: u64,
     pub records_written: u64,
     pub parse_failures: u64,
@@ -45,7 +46,7 @@ impl UsageStore {
                         cumulative_input_tokens, cumulative_cached_input_tokens,
                         cumulative_output_tokens, cumulative_reasoning_tokens,
                         relevant_event_ordinal, open_task_turn_id, open_task_started_at_ms,
-                        logs_rowid_watermark
+                        logs_rowid_watermark, contains_embedded_history
                  FROM source_files
                  WHERE source_kind IN ('session', 'archived_session', 'state_db', 'logs_db')",
             )?;
@@ -74,6 +75,7 @@ impl UsageStore {
                         open_task_turn_id: row.get(18)?,
                         open_task_started_at_ms: row.get(19)?,
                         logs_rowid_watermark: nonnegative_u64(row.get::<_, i64>(20)?),
+                        contains_embedded_history: row.get::<_, i64>(21)? != 0,
                     },
                 })
             })?;
@@ -154,7 +156,9 @@ impl UsageStore {
                 transaction,
                 source_file_id,
                 change,
-                previous_session.or_else(|| change.session_id.clone()),
+                previous_session
+                    .clone()
+                    .or_else(|| change.session_id.clone()),
             )
             .map_err(|error| ingest_stage("load_context", error))?;
             let outcome = source
@@ -205,9 +209,15 @@ impl UsageStore {
             )
             .map_err(|error| ingest_stage("mark_ready", error))?;
 
+            let displaced_session_id = (change.action == ChangeAction::Replay)
+                .then_some(previous_session)
+                .flatten()
+                .filter(|previous| session_id.as_deref() != Some(previous.as_str()));
+
             Ok(FileApplyResult {
                 source_key: change.source_key.clone(),
                 session_id,
+                displaced_session_id,
                 bytes_read: outcome.bytes_read,
                 records_written: outcome.records_emitted,
                 parse_failures: outcome.parse_failures,
@@ -278,6 +288,48 @@ impl UsageStore {
             })
         })
     }
+
+    /// Rebuild a session after a replayed source is re-associated with a
+    /// different session. Its old session may otherwise retain summaries that
+    /// included the source's now-deleted events.
+    pub fn rebuild_session_derived(
+        &self,
+        session_id: &str,
+        timezone: Tz,
+        idle_gap_ms: u64,
+    ) -> AppResult<()> {
+        self.with_writer(|transaction| {
+            let exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+                [session_id],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Ok(());
+            }
+            rebuild_session_model_segments(transaction, session_id)?;
+            rebuild_fallback_activity(
+                transaction,
+                session_id,
+                ChangeAction::Replay,
+                idle_gap_ms,
+                timezone,
+            )?;
+            recompute_session_summary(
+                transaction,
+                session_id,
+                &StreamOutcome {
+                    cursor: SourceCursor::default(),
+                    bytes_read: 0,
+                    records_emitted: 0,
+                    parse_failures: 0,
+                    incomplete_tail: false,
+                    cancelled: false,
+                },
+            )?;
+            rebuild_session_daily(transaction, session_id, ChangeAction::Replay, timezone)
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -295,6 +347,7 @@ fn empty_apply_result(change: &SourceChange) -> FileApplyResult {
     FileApplyResult {
         source_key: change.source_key.clone(),
         session_id: change.session_id.clone(),
+        displaced_session_id: None,
         bytes_read: 0,
         records_written: 0,
         parse_failures: 0,
@@ -379,7 +432,8 @@ fn mark_source_ready(
             cumulative_output_tokens = ?15, cumulative_reasoning_tokens = ?16,
             relevant_event_ordinal = ?17, open_task_turn_id = ?18,
             open_task_started_at_ms = ?19, logs_rowid_watermark = ?20, parser_version = ?21,
-            status = 'ready', last_error_code = NULL, last_seen_at_ms = ?22
+            contains_embedded_history = ?22,
+            status = 'ready', last_error_code = NULL, last_seen_at_ms = ?23
          WHERE id = ?1",
         params![
             source_file_id,
@@ -403,6 +457,7 @@ fn mark_source_ready(
             cursor.open_task_started_at_ms,
             to_i64(cursor.logs_rowid_watermark),
             PARSER_VERSION,
+            i64::from(cursor.contains_embedded_history),
             now_ms(),
         ],
     )?;
@@ -1954,6 +2009,368 @@ mod tests {
                     |row| row.get(0),
                 )?;
                 assert_eq!(mismatches, 0);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn embedded_parent_transcript_does_not_duplicate_usage_or_reassign_source_owner() {
+        let codex = tempfile::tempdir().unwrap();
+        let sessions = codex.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let parent = [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":70,"output_tokens":30,"reasoning_output_tokens":8}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        let child_snapshot = [
+            json!({"timestamp":"2026-07-10T02:00:00Z","type":"session_meta","payload":{"id":"child-session","session_id":"parent-session","forked_from_id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T02:00:00Z","type":"session_meta","payload":{"id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T02:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T02:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":70,"output_tokens":30,"reasoning_output_tokens":8}}}}),
+            json!({"timestamp":"2026-07-10T02:00:03Z","type":"session_meta","payload":{"id":"child-session","session_id":"parent-session","forked_from_id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T02:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        std::fs::write(sessions.join("rollout-parent.jsonl"), parent).unwrap();
+        std::fs::write(sessions.join("rollout-child.jsonl"), child_snapshot).unwrap();
+
+        let store = UsageStore::open_in_memory().unwrap();
+        let source = FsCodexSource::new(codex.path());
+        for change in source.plan(&[]).unwrap().changes {
+            store
+                .apply_source_change(
+                    &source,
+                    &change,
+                    &PricingCatalog::default(),
+                    chrono_tz::UTC,
+                    30 * 60 * 1000,
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+        }
+
+        store
+            .with_reader(|connection| {
+                let totals: Vec<(String, i64)> = connection
+                    .prepare(
+                        "SELECT id, total_tokens FROM sessions
+                         WHERE id IN ('parent-session', 'child-session') ORDER BY id",
+                    )?
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<Result<_, _>>()?;
+                assert_eq!(
+                    totals,
+                    vec![
+                        ("child-session".to_string(), 120),
+                        ("parent-session".to_string(), 180),
+                    ]
+                );
+                let events: i64 = connection.query_row(
+                    "SELECT COUNT(*) FROM usage_events",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(events, 3);
+                let child_owner: String = connection.query_row(
+                    "SELECT session_id FROM source_files WHERE relative_path LIKE '%rollout-child.jsonl'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(child_owner, "child-session");
+                let child_offsets: (i64, i64, i64) = connection.query_row(
+                    "SELECT file_size, safe_offset, contains_embedded_history
+                     FROM source_files WHERE relative_path LIKE '%rollout-child.jsonl'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(child_offsets.0, child_offsets.1);
+                assert_eq!(child_offsets.2, 0);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn replaying_a_misattributed_fork_rebuilds_its_former_parent_summary() {
+        let codex = tempfile::tempdir().unwrap();
+        let sessions = codex.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let parent = [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":70,"output_tokens":30,"reasoning_output_tokens":8}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        let child_snapshot = [
+            json!({"timestamp":"2026-07-10T02:00:00Z","type":"session_meta","payload":{"id":"child-session","session_id":"parent-session","forked_from_id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T02:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T02:00:02Z","type":"session_meta","payload":{"id":"parent-session","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T02:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T02:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":70,"output_tokens":30,"reasoning_output_tokens":8}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        std::fs::write(sessions.join("rollout-parent.jsonl"), parent).unwrap();
+        std::fs::write(sessions.join("rollout-child.jsonl"), child_snapshot).unwrap();
+
+        let store = UsageStore::open_in_memory().unwrap();
+        let source = FsCodexSource::new(codex.path());
+        for change in source.plan(&[]).unwrap().changes {
+            store
+                .apply_source_change(
+                    &source,
+                    &change,
+                    &PricingCatalog::default(),
+                    chrono_tz::UTC,
+                    30 * 60 * 1000,
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+        }
+
+        // Emulate the v3 checkpoint and rows written before fork ownership was
+        // distinguished from the embedded parent session_id.
+        store
+            .with_writer(|transaction| {
+                let source_file_id: i64 = transaction.query_row(
+                    "SELECT id FROM source_files WHERE relative_path LIKE '%rollout-child.jsonl'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                transaction.execute(
+                    "UPDATE usage_events SET session_id = 'parent-session'
+                     WHERE source_file_id = ?1",
+                    [source_file_id],
+                )?;
+                transaction.execute(
+                    "UPDATE source_files
+                     SET session_id = 'parent-session', parser_version = 3,
+                         contains_embedded_history = 0
+                     WHERE id = ?1",
+                    [source_file_id],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        store
+            .rebuild_session_derived("parent-session", chrono_tz::UTC, 30 * 60 * 1000)
+            .unwrap();
+        let corrupted_total: i64 = store
+            .with_reader(|connection| {
+                connection
+                    .query_row(
+                        "SELECT total_tokens FROM sessions WHERE id = 'parent-session'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(AppError::from)
+            })
+            .unwrap();
+        assert_eq!(corrupted_total, 300);
+
+        let replay = source
+            .plan(&store.source_checkpoints().unwrap())
+            .unwrap()
+            .changes
+            .into_iter()
+            .find(|change| change.relative_path().ends_with("rollout-child.jsonl"))
+            .unwrap();
+        assert_eq!(replay.action(), ChangeAction::Replay);
+        let result = store
+            .apply_source_change(
+                &source,
+                &replay,
+                &PricingCatalog::default(),
+                chrono_tz::UTC,
+                30 * 60 * 1000,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+        assert_eq!(
+            result.displaced_session_id.as_deref(),
+            Some("parent-session")
+        );
+        store
+            .rebuild_session_derived("parent-session", chrono_tz::UTC, 30 * 60 * 1000)
+            .unwrap();
+
+        store
+            .with_reader(|connection| {
+                let totals: Vec<(String, i64)> = connection
+                    .prepare(
+                        "SELECT id, total_tokens FROM sessions
+                         WHERE id IN ('parent-session', 'child-session') ORDER BY id",
+                    )?
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<Result<_, _>>()?;
+                assert_eq!(
+                    totals,
+                    vec![
+                        ("child-session".to_string(), 120),
+                        ("parent-session".to_string(), 180),
+                    ]
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn parser_upgrade_replays_normal_source_and_rebuilds_stale_derived_totals() {
+        let codex = tempfile::tempdir().unwrap();
+        let sessions = codex.path().join("sessions/2026/07/10");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let content = [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"replay-summary","cwd":"C:/workspace/demo","model_provider":"openai"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+            json!({"timestamp":"2026-07-10T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":150,"cached_input_tokens":60,"output_tokens":30,"reasoning_output_tokens":8}}}}),
+        ]
+        .into_iter()
+        .map(json_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        std::fs::write(sessions.join("rollout-replay-summary.jsonl"), content).unwrap();
+
+        let store = UsageStore::open_in_memory().unwrap();
+        let source = FsCodexSource::new(codex.path());
+        let initial = source.plan(&[]).unwrap().changes.remove(0);
+        store
+            .apply_source_change(
+                &source,
+                &initial,
+                &PricingCatalog::default(),
+                chrono_tz::UTC,
+                30 * 60 * 1000,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+
+        // Emulate a prior parser that left the denormalized summaries doubled
+        // even though its event rows were already correct.
+        store
+            .with_writer(|transaction| {
+                transaction.execute(
+                    "UPDATE session_model_segments SET
+                        input_tokens = input_tokens * 2,
+                        cached_input_tokens = cached_input_tokens * 2,
+                        output_tokens = output_tokens * 2,
+                        reasoning_tokens = reasoning_tokens * 2
+                     WHERE session_id = 'replay-summary'",
+                    [],
+                )?;
+                transaction.execute(
+                    "UPDATE sessions SET
+                        input_tokens = input_tokens * 2,
+                        fresh_input_tokens = fresh_input_tokens * 2,
+                        cached_input_tokens = cached_input_tokens * 2,
+                        output_tokens = output_tokens * 2,
+                        reasoning_tokens = reasoning_tokens * 2,
+                        total_tokens = total_tokens * 2
+                     WHERE id = 'replay-summary'",
+                    [],
+                )?;
+                transaction.execute(
+                    "UPDATE session_daily_usage SET
+                        input_tokens = input_tokens * 2,
+                        fresh_input_tokens = fresh_input_tokens * 2,
+                        cached_input_tokens = cached_input_tokens * 2,
+                        output_tokens = output_tokens * 2,
+                        reasoning_tokens = reasoning_tokens * 2,
+                        total_tokens = total_tokens * 2
+                     WHERE session_id = 'replay-summary'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let mut checkpoints = store.source_checkpoints().unwrap();
+        for checkpoint in &mut checkpoints {
+            checkpoint.parser_version = PARSER_VERSION - 1;
+        }
+        let replay = source.plan(&checkpoints).unwrap().changes.remove(0);
+        assert_eq!(replay.action(), ChangeAction::Replay);
+        store
+            .apply_source_change(
+                &source,
+                &replay,
+                &PricingCatalog::default(),
+                chrono_tz::UTC,
+                30 * 60 * 1000,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+
+        store
+            .with_reader(|connection| {
+                let session: (i64, i64, i64, i64, i64) = connection.query_row(
+                    "SELECT input_tokens, cached_input_tokens, output_tokens,
+                            reasoning_tokens, total_tokens
+                     FROM sessions WHERE id = 'replay-summary'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )?;
+                let segments: (i64, i64, i64, i64, i64) = connection.query_row(
+                    "SELECT SUM(input_tokens), SUM(cached_input_tokens),
+                            SUM(output_tokens), SUM(reasoning_tokens),
+                            SUM(input_tokens + output_tokens)
+                     FROM session_model_segments WHERE session_id = 'replay-summary'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )?;
+                let daily: (i64, i64, i64, i64, i64) = connection.query_row(
+                    "SELECT SUM(input_tokens), SUM(cached_input_tokens),
+                            SUM(output_tokens), SUM(reasoning_tokens), SUM(total_tokens)
+                     FROM session_daily_usage WHERE session_id = 'replay-summary'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(session, (150, 60, 30, 8, 180));
+                assert_eq!(segments, session);
+                assert_eq!(daily, session);
                 Ok(())
             })
             .unwrap();

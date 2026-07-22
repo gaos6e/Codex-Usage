@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
@@ -211,6 +211,7 @@ impl UsageIndexer {
             started_at_ms,
         )?;
 
+        let mut displaced_sessions = HashSet::new();
         for change in &plan.changes {
             if self.cancel.load(Ordering::Relaxed) {
                 break;
@@ -226,6 +227,9 @@ impl UsageIndexer {
             );
             match result {
                 Ok(result) => {
+                    if let Some(session_id) = result.displaced_session_id {
+                        displaced_sessions.insert(session_id);
+                    }
                     self.update_status(|status| {
                         status.files_completed = status.files_completed.saturating_add(1);
                         status.bytes_read = status.bytes_read.saturating_add(result.bytes_read);
@@ -258,6 +262,13 @@ impl UsageIndexer {
             self.persist_progress(&run_id, started, "running", None)?;
         }
 
+        for session_id in displaced_sessions {
+            self.store.rebuild_session_derived(
+                &session_id,
+                self.timezone,
+                self.idle_gap_ms.load(Ordering::Relaxed),
+            )?;
+        }
         self.update_status(|status| status.phase = SyncPhase::RollingUp);
         self.store
             .rebuild_rollups_and_prune(Utc::now().timestamp_millis(), 90, self.timezone)?;

@@ -23,6 +23,17 @@ pub(super) fn stream_jsonl(
         ChangeAction::Append => change.cursor.clone(),
         ChangeAction::MetadataOnly | ChangeAction::Missing => return Err(AppError::filesystem()),
     };
+    // A replay must establish ownership from the file itself: a prior parser
+    // version may have incorrectly associated this source with its parent.
+    let mut owner_session_id = match change.action {
+        ChangeAction::Append => change.session_id.clone(),
+        ChangeAction::Replay => None,
+        ChangeAction::MetadataOnly | ChangeAction::Missing => None,
+    };
+    // This flag means the prior safe offset ended inside a copied parent
+    // transcript. Continue scanning until the owner metadata resumes rather
+    // than treating the rest of a forked rollout as permanently irrelevant.
+    let mut skipping_embedded_history = cursor.contains_embedded_history;
     let start_offset = cursor.safe_offset;
     let mut file = File::open(&change.path)?;
     file.seek(SeekFrom::Start(start_offset))?;
@@ -56,16 +67,41 @@ pub(super) fn stream_jsonl(
             line.pop();
         }
         let next_offset = line_start.saturating_add(length as u64);
-        if !line.iter().all(u8::is_ascii_whitespace) {
+        // Parent snapshots can be gigabytes long. While skipping one, only
+        // inspect lines that could contain the owner-resume metadata.
+        let could_resume_owner = line
+            .windows(b"\"session_meta\"".len())
+            .any(|window| window == b"\"session_meta\"");
+        if !line.iter().all(u8::is_ascii_whitespace)
+            && (!skipping_embedded_history || could_resume_owner)
+        {
             match serde_json::from_slice::<Value>(&line) {
                 Ok(value) => {
-                    for record in parse_value(&value, line_start, &mut cursor) {
-                        sink(record)?;
-                        records_emitted = records_emitted.saturating_add(1);
+                    if skipping_embedded_history {
+                        if resumes_owner_session(&value, owner_session_id.as_deref()) {
+                            skipping_embedded_history = false;
+                            cursor.contains_embedded_history = false;
+                            for record in
+                                parse_value(&value, line_start, &mut cursor, &mut owner_session_id)
+                            {
+                                sink(record)?;
+                                records_emitted = records_emitted.saturating_add(1);
+                            }
+                        }
+                    } else {
+                        for record in
+                            parse_value(&value, line_start, &mut cursor, &mut owner_session_id)
+                        {
+                            sink(record)?;
+                            records_emitted = records_emitted.saturating_add(1);
+                        }
+                        skipping_embedded_history = cursor.contains_embedded_history;
                     }
                 }
                 Err(_) => {
-                    parse_failures = parse_failures.saturating_add(1);
+                    if !skipping_embedded_history {
+                        parse_failures = parse_failures.saturating_add(1);
+                    }
                 }
             }
         }
@@ -84,7 +120,25 @@ pub(super) fn stream_jsonl(
     })
 }
 
-fn parse_value(value: &Value, byte_offset: u64, cursor: &mut SourceCursor) -> Vec<ParsedRecord> {
+fn resumes_owner_session(value: &Value, owner_session_id: Option<&str>) -> bool {
+    let Some(owner_session_id) = owner_session_id else {
+        return false;
+    };
+    if value.get("type").and_then(Value::as_str) != Some("session_meta") {
+        return false;
+    }
+    let Some(payload) = value.get("payload").and_then(Value::as_object) else {
+        return false;
+    };
+    session_metadata_id(payload) == Some(owner_session_id)
+}
+
+fn parse_value(
+    value: &Value,
+    byte_offset: u64,
+    cursor: &mut SourceCursor,
+    owner_session_id: &mut Option<String>,
+) -> Vec<ParsedRecord> {
     let Some(event_type) = value.get("type").and_then(Value::as_str) else {
         return Vec::new();
     };
@@ -94,7 +148,13 @@ fn parse_value(value: &Value, byte_offset: u64, cursor: &mut SourceCursor) -> Ve
     let occurred_at_ms = parse_timestamp(value.get("timestamp"));
 
     match event_type {
-        "session_meta" => parse_session_metadata(payload, occurred_at_ms, byte_offset, cursor),
+        "session_meta" => parse_session_metadata(
+            payload,
+            occurred_at_ms,
+            byte_offset,
+            cursor,
+            owner_session_id,
+        ),
         "turn_context" => parse_turn_context(payload, occurred_at_ms, byte_offset, cursor),
         "event_msg" => parse_event_message(payload, occurred_at_ms, byte_offset, cursor),
         "response_item" => parse_tool_call(payload, occurred_at_ms, byte_offset, cursor),
@@ -107,14 +167,25 @@ fn parse_session_metadata(
     outer_timestamp: Option<i64>,
     byte_offset: u64,
     cursor: &mut SourceCursor,
+    owner_session_id: &mut Option<String>,
 ) -> Vec<ParsedRecord> {
-    let Some(session_id) = ["session_id", "sessionId", "id"]
-        .iter()
-        .find_map(|key| payload.get(*key).and_then(Value::as_str))
-        .filter(|value| !value.is_empty())
-    else {
+    // Current fork metadata keeps the owner thread in `id`, while
+    // `session_id` can point to its parent transcript. Prefer `id` so an
+    // embedded parent snapshot cannot be mistaken for the child source.
+    let Some(session_id) = session_metadata_id(payload) else {
         return Vec::new();
     };
+    match owner_session_id {
+        Some(owner) if owner != session_id => {
+            // Forked rollouts begin with their own metadata, then embed the
+            // parent transcript. Those records describe already-indexed work,
+            // not new activity for either session.
+            cursor.contains_embedded_history = true;
+            return Vec::new();
+        }
+        Some(_) => {}
+        None => *owner_session_id = Some(session_id.to_string()),
+    }
     let provider = payload
         .get("model_provider")
         .and_then(Value::as_str)
@@ -155,6 +226,13 @@ fn parse_session_metadata(
         )));
     }
     records
+}
+
+fn session_metadata_id(payload: &serde_json::Map<String, Value>) -> Option<&str> {
+    ["id", "session_id", "sessionId"]
+        .iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_turn_context(
@@ -513,6 +591,27 @@ mod tests {
         (records, outcome)
     }
 
+    fn run_for_session(
+        path: &std::path::Path,
+        action: ChangeAction,
+        cursor: SourceCursor,
+        session_id: &str,
+    ) -> (Vec<ParsedRecord>, StreamOutcome) {
+        let mut records = Vec::new();
+        let mut source_change = change(path, action, cursor);
+        source_change.session_id = Some(session_id.to_string());
+        let outcome = stream_jsonl(
+            &source_change,
+            &mut |record| {
+                records.push(record);
+                Ok(())
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        (records, outcome)
+    }
+
     #[test]
     fn parses_current_model_provider_switches_and_token_deltas() {
         let directory = tempfile::tempdir().unwrap();
@@ -580,6 +679,60 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, 20);
         assert_eq!(usage.fresh_input_tokens, 30);
         assert_eq!(usage.reasoning_tokens, 3);
+    }
+
+    #[test]
+    fn resumes_a_fork_after_an_embedded_parent_transcript() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fork.jsonl");
+        let initial = [
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"child","session_id":"parent","forked_from_id":"parent"}}),
+            json!({"timestamp":"2026-07-10T01:00:00Z","type":"session_meta","payload":{"id":"parent"}}),
+            json!({"timestamp":"2026-07-10T01:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+        ]
+        .iter()
+        .map(line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        std::fs::write(&path, initial).unwrap();
+
+        let (first_records, first) = run(&path, ChangeAction::Replay, SourceCursor::default());
+        assert!(first.cursor.contains_embedded_history);
+        assert!(
+            !first_records
+                .iter()
+                .any(|record| matches!(record, ParsedRecord::Usage(_)))
+        );
+
+        let resumed = [
+            json!({"timestamp":"2026-07-10T01:01:00Z","type":"session_meta","payload":{"id":"child","session_id":"parent","forked_from_id":"parent"}}),
+            json!({"timestamp":"2026-07-10T01:01:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}),
+        ]
+        .iter()
+        .map(line)
+        .collect::<Vec<_>>()
+        .join("\n")
+            + "\n";
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(resumed.as_bytes()).unwrap();
+        drop(file);
+
+        let (records, outcome) =
+            run_for_session(&path, ChangeAction::Append, first.cursor, "child");
+        let usage = records
+            .iter()
+            .find_map(|record| match record {
+                ParsedRecord::Usage(event) => Some(event),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 20);
+        assert!(!outcome.cursor.contains_embedded_history);
     }
 
     #[test]
