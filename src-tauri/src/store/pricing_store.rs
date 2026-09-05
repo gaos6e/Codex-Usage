@@ -14,6 +14,13 @@ use crate::pricing::{
 };
 use crate::pricing_update::TrustedPriceRow;
 
+fn builtin_display_name(pricing_id: &str) -> String {
+    match pricing_id {
+        "gpt-6-astra" => "GPT-6 Astra".to_string(),
+        _ => pricing_id.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelPriceRecord {
@@ -141,6 +148,7 @@ impl UsageStore {
         self.with_writer(|transaction| {
             for price in prices {
                 let cache_write = price.cache_write_per_million_usd.map(|value| value.to_string());
+                let display_name = builtin_display_name(&price.pricing_id);
                 transaction.execute(
                     "INSERT INTO model_prices (
                         pricing_id, provider, display_name,
@@ -151,8 +159,8 @@ impl UsageStore {
                         is_builtin, is_overridden, is_deleted, revision,
                         source_url, source_updated_at_ms, created_at_ms, updated_at_ms
                      ) VALUES (
-                        ?1, ?2, ?1, ?3, ?4, ?5, ?6, ?3, ?4, ?5, ?6,
-                        1, 0, 0, ?7, ?8, ?9, ?10, ?10
+                        ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?4, ?5, ?6, ?7,
+                        1, 0, 0, ?8, ?9, ?10, ?11, ?11
                      )
                      ON CONFLICT(provider, pricing_id) DO UPDATE SET
                         default_input_per_million_usd = excluded.default_input_per_million_usd,
@@ -174,6 +182,7 @@ impl UsageStore {
                     params![
                         price.pricing_id,
                         price.provider,
+                        display_name,
                         price.input_per_million_usd.to_string(),
                         price.output_per_million_usd.to_string(),
                         price.cache_read_per_million_usd.to_string(),
@@ -670,11 +679,26 @@ mod tests {
         assert_eq!(
             prices
                 .iter()
-                .take(4)
+                .take(5)
                 .map(|price| price.pricing_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]
+            vec![
+                "gpt-6-astra",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5"
+            ]
         );
+        let astra = prices
+            .iter()
+            .find(|price| price.pricing_id == "gpt-6-astra")
+            .unwrap();
+        assert_eq!(astra.display_name, "GPT-6 Astra");
+        assert_eq!(astra.input_per_million_usd, "10");
+        assert_eq!(astra.output_per_million_usd, "50");
+        assert_eq!(astra.cache_read_per_million_usd, "1");
+        assert_eq!(astra.cache_write_per_million_usd.as_deref(), Some("12.5"));
         let sol = prices
             .iter()
             .find(|price| price.pricing_id == "gpt-5.6-sol")

@@ -1181,6 +1181,18 @@ mod tests {
         let tools = query.tools(&filters()).unwrap();
         assert_eq!(tools.total_calls, 3);
         assert_eq!(tools.top_tools[0].tool_name, "apply_patch");
+        // Heatmaps use a trailing window, unlike the fixed-range tools fixture.
+        let today = Utc::now().with_timezone(&query.timezone).date_naive();
+        query
+            .store
+            .with_writer(|transaction| {
+                transaction.execute(
+                    "UPDATE session_daily_usage SET local_date = ?1",
+                    [today.format("%Y-%m-%d").to_string()],
+                )?;
+                Ok(())
+            })
+            .unwrap();
         let heatmap = query
             .heatmap(&HeatmapQuery {
                 filters: filters(),

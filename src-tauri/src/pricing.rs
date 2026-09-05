@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 pub const OFFICIAL_PRICING_SOURCE: &str = "https://developers.openai.com/api/docs/pricing";
-pub const BUILTIN_PRICING_REVISION: i64 = 2_026_071_002;
+pub const BUILTIN_PRICING_REVISION: i64 = 2_026_090_501;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedModelId {
@@ -51,6 +51,7 @@ pub struct PricingCatalog {
 
 pub fn builtin_model_prices() -> Vec<ModelPrice> {
     [
+        ("gpt-6-astra", "10", "50", "1", Some("12.5")),
         ("gpt-5.6-sol", "5", "30", "0.5", Some("6.25")),
         ("gpt-5.6-terra", "2.5", "15", "0.25", Some("3.125")),
         ("gpt-5.6-luna", "1", "6", "0.1", Some("1.25")),
@@ -367,6 +368,22 @@ mod tests {
             catalog.quote("openai", "gpt-5.2-codex", tokens),
             PriceQuote::Priced { pricing_id, total_microusd: 1_750_000, .. }
                 if pricing_id == "gpt-5.2"
+        ));
+    }
+
+    #[test]
+    fn prices_gpt_6_astra_at_the_official_standard_short_context_rate() {
+        let catalog = PricingCatalog::new(builtin_model_prices());
+        let tokens = PriceableTokens {
+            fresh_input: 1_000_000,
+            cached_input: 1_000_000,
+            output: 1_000_000,
+            cache_write: 1_000_000,
+        };
+        assert!(matches!(
+            catalog.quote("openai", "gpt-6-astra", tokens),
+            PriceQuote::Priced { pricing_id, total_microusd: 73_500_000, .. }
+                if pricing_id == "gpt-6-astra"
         ));
     }
 

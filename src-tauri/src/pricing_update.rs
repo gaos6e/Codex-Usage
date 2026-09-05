@@ -195,7 +195,7 @@ fn parse_official_pricing(html: &str) -> AppResult<Vec<TrustedPriceRow>> {
         let cache_write = parse_price(captures.get(4).map_or("", |value| value.as_str()));
         rows.entry(pricing_id.clone()).or_insert(TrustedPriceRow {
             provider: "openai".to_string(),
-            display_name: pricing_id.clone(),
+            display_name: official_display_name(&pricing_id),
             pricing_id,
             input_per_million_usd: input,
             output_per_million_usd: output,
@@ -210,6 +210,13 @@ fn parse_official_pricing(html: &str) -> AppResult<Vec<TrustedPriceRow>> {
         ));
     }
     Ok(rows.into_values().collect())
+}
+
+fn official_display_name(pricing_id: &str) -> String {
+    match pricing_id {
+        "gpt-6-astra" => "GPT-6 Astra".to_string(),
+        _ => pricing_id.to_string(),
+    }
 }
 
 fn decode_model_id(raw: &str) -> String {
